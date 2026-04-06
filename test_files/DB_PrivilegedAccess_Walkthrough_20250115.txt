@@ -1,0 +1,21 @@
+[MS Teams Meeting - Database Privileged Access Management Walkthrough]
+Date: January 15, 2025
+Attendees: John Smith (IT Audit Lead), Sarah Chen (DBA Manager), Mike Rodriguez (Security Admin)
+
+John: Can you walk me through how privileged access to production databases is managed?
+
+Sarah: We use CyberArk PAM solution. All privileged accounts are vaulted. Users check out access for max 4 hours.
+
+Mike: Approval workflow - for emergency access, manager approval via ServiceNow. For scheduled maintenance, we use Jira tickets.
+
+John: What about orphan accounts? Any cleanup process?
+
+Sarah: Quarterly reviews. Last review was Dec 2024 - found 12 orphan accounts, all removed.
+
+Mike: We also have MFA enforced for all PAM checkouts. Logs retained for 90 days.
+
+John: Any exceptions in last 6 months?
+
+Sarah: One incident in October - DBA left, his account wasn't disabled for 3 days. Root cause was HR notification delay. Fixed with automated HR-PAM integration now.
+
+Mike: We also implemented session recording for all privileged access.

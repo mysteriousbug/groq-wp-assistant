@@ -705,67 +705,106 @@ def render_exceptions_phase(wp: ControlWorkpaper):
 
 def render_workpaper_preview(wp: ControlWorkpaper):
     st.markdown("## 📄 Live Workpaper Preview")
-    st.caption("This updates after every phase. What you see here is what gets exported to .docx.")
+    st.caption("This mirrors the exported .docx template: Core Details → CDE → COE.")
 
-    # ── Header ──
-    st.markdown(f"**Audit:** {wp.audit_name}")
-    st.markdown(f"**Control:** {wp.control_name}")
-    st.markdown(f"**Status:** {effectiveness_badge(wp.effectiveness)}", unsafe_allow_html=True)
-    st.markdown(f"**Progress:** {wp.progress_pct()}% — Phases completed: {', '.join([p.value for p in wp.completed_phases]) or 'None'}")
+    rcm = wp.rcm[0] if wp.rcm else None
+    has_cde = wp.cde_result is not None
+    has_coe = wp.coe_result is not None
+    has_da = wp.da_result is not None
 
-    # ── RCM Preview ──
-    if wp.rcm:
-        st.markdown("### Risk Control Matrix")
-        for row in wp.rcm:
-            st.markdown(f"""
-| Field | Value |
-|-------|-------|
-| Risk | {row.risk_id}: {row.risk_description} |
-| Control | {row.control_id}: {row.control_objective} |
-| Owner | {row.control_owner} |
-| Frequency / Type / Nature | {row.control_frequency} / {row.control_type} / {row.control_nature} |
-| Testing Approach | {row.testing_approach} |
-""")
+    # ── CORE DETAILS ──
+    st.markdown("### 🔵 CORE DETAILS")
+    core_data = {
+        "Country": "Group-wide",
+        "Legal Entity": "Standard Chartered Bank",
+        "Key Risk": rcm.risk_description if rcm else "—",
+        "Reference Number": rcm.control_id if rcm else "—",
+        "Title (Key Control)": wp.control_name,
+        "Key Control Description": rcm.control_description[:200] + "..." if rcm and len(rcm.control_description) > 200 else (rcm.control_description if rcm else "—"),
+        "CDE Required": "Yes" if has_cde else "No",
+        "COE Required": "Yes" if has_coe else "No",
+        "Data Analytics": "Yes" if has_da else "No",
+    }
+    for label, value in core_data.items():
+        st.markdown(f"**{label}:** {value}")
 
-    # ── CDE Preview ──
-    if wp.cde_result:
-        st.markdown("### CDE Result")
-        st.markdown(f"**Assessment:** {wp.cde_result.design_assessment}")
-        st.markdown(f"**Conclusion:** {wp.cde_result.conclusion}")
-        if wp.cde_result.manually_edited:
+    # ── CDE (shows walkthrough data immediately + CDE analysis when available) ──
+    wt_transcripts = [t for t in wp.transcripts if t.phase == TestingPhase.WALKTHROUGH]
+    has_walkthrough = len(wt_transcripts) > 0
+
+    if has_walkthrough or has_cde:
+        st.markdown("---")
+        st.markdown("### 🔵 CDE")
+
+        if rcm:
+            st.markdown(f"**Control Frequency:** {rcm.control_frequency}")
+            st.markdown(f"**Nature:** {rcm.control_type} | **Type:** {'Monitoring' if 'Detective' in (rcm.control_type or '') else 'Processing'} | **Manual/Auto:** {rcm.control_nature}")
+
+        # Process Walkthrough section — appears as soon as transcripts are uploaded
+        if has_walkthrough:
+            st.markdown("**CDE Testing Outcome — Process Walkthrough:**")
+            st.markdown(f"> *Discussion and walkthrough with stakeholders*")
+            if rcm and rcm.control_owner:
+                st.markdown(f"> *Control Owner: {rcm.control_owner}*")
+            st.markdown("**Walkthrough transcripts:**")
+            for t in wt_transcripts:
+                st.markdown(f"- {t.filename} ({t.uploaded_at.strftime('%d %b %Y')})")
+                if t.summary:
+                    st.caption(f"  Summary: {t.summary[:150]}...")
+
+        # CDE analysis results — appear after CDE phase is run
+        if has_cde:
+            cde = wp.cde_result
+            st.markdown(f"**CDE Assessment:** {cde.design_assessment}")
+            if cde.design_strengths:
+                st.markdown("**Strengths:** " + "; ".join(cde.design_strengths[:3]))
+            if cde.design_gaps:
+                st.markdown("**Gaps:** " + "; ".join(cde.design_gaps[:3]))
+            st.markdown(f"**CDE Conclusion:** {cde.design_assessment}")
+            st.markdown(f"**Comments:** {cde.conclusion[:300]}{'...' if len(cde.conclusion) > 300 else ''}")
+            if cde.manually_edited:
+                st.caption("✏️ Manually edited by auditor")
+        elif has_walkthrough:
+            st.info("CDE analysis not yet run. Walkthrough data is already captured above.")
+
+    # ── COE ──
+    if has_coe:
+        st.markdown("---")
+        st.markdown("### 🔵 COE")
+        coe = wp.coe_result
+        st.markdown(f"**Sample Size:** {coe.sample_size} | **Sample Period:** {coe.sample_period}")
+        st.markdown(f"**Deviations Found:** {coe.deviations_found}")
+        if coe.deviation_details:
+            for d in coe.deviation_details[:3]:
+                st.markdown(f"- {d}")
+        st.markdown(f"**COE Conclusion:** {'Effective' if coe.deviations_found == 0 else 'Partially Effective' if coe.deviations_found <= 2 else 'Ineffective'}")
+        st.markdown(f"**Comments:** {coe.conclusion[:300]}{'...' if len(coe.conclusion) > 300 else ''}")
+        if coe.manually_edited:
             st.caption("✏️ Manually edited by auditor")
 
-    # ── COE Preview ──
-    if wp.coe_result:
-        st.markdown("### COE Result")
-        st.markdown(f"**Samples:** {wp.coe_result.sample_size} | **Deviations:** {wp.coe_result.deviations_found}")
-        st.markdown(f"**Conclusion:** {wp.coe_result.conclusion}")
-        if wp.coe_result.manually_edited:
-            st.caption("✏️ Manually edited by auditor")
+    # ── DA (shown as additional info) ──
+    if has_da:
+        st.markdown("---")
+        st.markdown("### 📊 Data Analytics (feeds into CDE/COE tables)")
+        da = wp.da_result
+        st.markdown(f"**Population:** {da.population_size} | **Exceptions:** {da.exceptions_identified}")
+        st.markdown(f"**Conclusion:** {da.conclusion[:200]}{'...' if len(da.conclusion) > 200 else ''}")
 
-    # ── DA Preview ──
-    if wp.da_result:
-        st.markdown("### DA Result")
-        st.markdown(f"**Population:** {wp.da_result.population_size} | **Exceptions:** {wp.da_result.exceptions_identified}")
-        st.markdown(f"**Conclusion:** {wp.da_result.conclusion}")
-        if wp.da_result.manually_edited:
-            st.caption("✏️ Manually edited by auditor")
-
-    # ── Exceptions Preview ──
+    # ── Exceptions ──
     if wp.exceptions:
-        st.markdown("### Exceptions")
+        st.markdown("---")
+        st.markdown("### ⚠️ Exceptions (included in COE Comments)")
         for i, exc in enumerate(wp.exceptions):
             st.markdown(f"**{i+1}.** [{exc.severity.value}] {exc.description}")
 
-    # ── Conclusion Preview ──
+    # ── Overall Conclusion ──
     if wp.ai_conclusion_rationale:
-        st.markdown("### AI Conclusion")
-        st.markdown(f"**Effectiveness:** {wp.effectiveness.value}")
-        st.markdown(wp.ai_conclusion_rationale)
+        st.markdown("---")
+        st.markdown(f"### Overall Conclusion: {effectiveness_badge(wp.effectiveness)}", unsafe_allow_html=True)
+        st.markdown(wp.ai_conclusion_rationale[:400])
 
     if wp.auditor_override_rationale:
-        st.markdown("### Auditor Override")
-        st.markdown(wp.auditor_override_rationale)
+        st.markdown(f"**Auditor Override:** {wp.auditor_override_rationale}")
 
     # ── Auditor override section ──
     st.markdown("---")

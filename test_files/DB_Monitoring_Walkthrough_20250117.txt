@@ -1,0 +1,21 @@
+[MS Teams Meeting - Database Monitoring Walkthrough]
+Date: January 17, 2025
+Attendees: John Smith, Rachel Green (Monitoring Lead), Tom Brady (DBA)
+
+John: How do you monitor database performance and security events?
+
+Rachel: We use Splunk for log aggregation. All DB audit logs (failed logins, privilege changes, DDL operations) stream to Splunk.
+
+Tom: For performance - Redgate SQL Monitor. Alerts on CPU > 80%, long running queries > 30 sec.
+
+John: Alert response times?
+
+Rachel: Critical alerts (security breaches, DB down) page on-call DBA within 2 minutes. Non-critical during business hours.
+
+Tom: Last month we had 47 alerts - average response 8 minutes. SLA is 15 minutes.
+
+John: Any monitoring gaps identified?
+
+Rachel: Yes, we're missing audit logs for SELECT on sensitive tables (PII data). Implementation planned for Q2 2025.
+
+Tom: Also no real-time blocking of anomalous queries - just detection right now.
