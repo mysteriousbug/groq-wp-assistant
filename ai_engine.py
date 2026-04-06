@@ -42,22 +42,66 @@ def _call_llm(system_prompt: str, user_prompt: str, temperature: float = 0.2) ->
 
 
 def _parse_json_response(raw: str) -> dict:
-    """Extract JSON from LLM response, handling markdown fences."""
+    """Extract JSON from LLM response, handling markdown fences and control chars."""
+    import re
+
     cleaned = raw.strip()
     if cleaned.startswith("```"):
-        # Remove ```json ... ``` wrapper
         lines = cleaned.split("\n")
         lines = [l for l in lines if not l.strip().startswith("```")]
         cleaned = "\n".join(lines)
+
+    # First attempt: direct parse
     try:
         return json.loads(cleaned)
     except json.JSONDecodeError:
-        # Try to find JSON object in the response
-        start = cleaned.find("{")
-        end = cleaned.rfind("}") + 1
-        if start != -1 and end > start:
-            return json.loads(cleaned[start:end])
-        raise ValueError(f"Could not parse JSON from LLM response:\n{cleaned[:500]}")
+        pass
+
+    # Second attempt: extract JSON object/array from surrounding text
+    start = cleaned.find("{")
+    end = cleaned.rfind("}") + 1
+    if start != -1 and end > start:
+        json_str = cleaned[start:end]
+        try:
+            return json.loads(json_str)
+        except json.JSONDecodeError:
+            pass
+
+        # Third attempt: sanitize control characters inside string values
+        # Replace literal newlines/tabs inside JSON strings with escaped versions
+        sanitized = json_str
+        # Remove control chars (0x00-0x1F) except \n, \r, \t
+        sanitized = re.sub(r'[\x00-\x08\x0b\x0c\x0e-\x1f]', '', sanitized)
+
+        # Fix unescaped newlines inside JSON string values
+        # Strategy: replace actual newlines with \\n within quoted strings
+        try:
+            return json.loads(sanitized)
+        except json.JSONDecodeError:
+            pass
+
+        # Fourth attempt: aggressive cleanup — replace all real newlines with spaces
+        # then restore the JSON structure newlines
+        oneline = sanitized.replace("\r\n", " ").replace("\n", " ").replace("\r", " ")
+        # Collapse multiple spaces
+        oneline = re.sub(r' {2,}', ' ', oneline)
+        try:
+            return json.loads(oneline)
+        except json.JSONDecodeError:
+            pass
+
+        # Fifth attempt: use strict=False
+        try:
+            return json.loads(json_str, strict=False)
+        except json.JSONDecodeError:
+            pass
+
+        try:
+            return json.loads(sanitized, strict=False)
+        except json.JSONDecodeError:
+            pass
+
+    raise ValueError(f"Could not parse JSON from LLM response:\n{raw[:500]}")
 
 
 # ─────────────────────────────────────────────
@@ -157,12 +201,15 @@ Build the RCM rows for this control."""
         cleaned = "\n".join(lines)
 
     try:
-        data = json.loads(cleaned)
+        data = json.loads(cleaned, strict=False)
     except json.JSONDecodeError:
         start = cleaned.find("[")
         end = cleaned.rfind("]") + 1
         if start != -1 and end > start:
-            data = json.loads(cleaned[start:end])
+            try:
+                data = json.loads(cleaned[start:end], strict=False)
+            except json.JSONDecodeError:
+                data = [_parse_json_response(cleaned)]
         else:
             data = [_parse_json_response(cleaned)]
 
@@ -353,12 +400,15 @@ If no exceptions are found, return an empty array: []"""
         cleaned = "\n".join(lines)
 
     try:
-        data = json.loads(cleaned)
+        data = json.loads(cleaned, strict=False)
     except json.JSONDecodeError:
         start = cleaned.find("[")
         end = cleaned.rfind("]") + 1
         if start != -1 and end > start:
-            data = json.loads(cleaned[start:end])
+            try:
+                data = json.loads(cleaned[start:end], strict=False)
+            except json.JSONDecodeError:
+                data = []
         else:
             data = []
 
