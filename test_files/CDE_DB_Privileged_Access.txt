@@ -1,0 +1,34 @@
+Database Privileged Access Management - CDE Testing Discussion
+Microsoft Teams Meeting Transcript
+Date: 25 March 2026
+Attendees: Ananya Aithal (Auditor), Edwin Joyson (Audit Lead), Kotha Phaneendra (Auditor)
+
+---
+
+[00:00:10] Edwin Joyson: Let's discuss our CDE assessment for the DB Privileged Access Management control based on the two walkthroughs we conducted.
+
+[00:00:22] Ananya Aithal: I've reviewed both transcripts and the supporting documentation. Overall, I think the control is well designed. Let me walk through my assessment.
+
+[00:00:35] Ananya Aithal: Strengths first. The PAM solution — CyberArk — is industry-leading and covers the full lifecycle: provisioning, vaulting, session recording, and password rotation. The four-eye approval process for access requests through ServiceNow is robust — requestor, line manager, DBA lead, and IAM team. The monthly reconciliation between database-level privileges and CyberArk vault addresses the identification and vaulting gap. And the monitoring side is strong — 14 Splunk detection rules with defined SLAs is comprehensive.
+
+[00:01:15] Kotha Phaneendra: I agree on the strengths. However, I noted a few design gaps we should document.
+
+[00:01:22] Kotha Phaneendra: First, there's no automated integration between the HR termination process and CyberArk deprovisioning. Rajesh mentioned the quarterly recertification catches this, but there's a potential window of up to 90 days where a terminated employee's privileged access could remain active. That's a design gap.
+
+[00:01:48] Edwin Joyson: Good catch. What else?
+
+[00:01:52] Ananya Aithal: Second gap — the reconciliation is monthly, but the risk appetite allows up to 5% unvaulted accounts. For 340 instances with potentially hundreds of privileged accounts, 5% could mean a significant number of unvaulted accounts at any given time. The control description says the target is zero but the risk appetite is 5%. There's a disconnect between aspiration and tolerance.
+
+[00:02:20] Kotha Phaneendra: Third, the break-glass process requires VP-level approval but it's verbal approval that's documented after the fact. There's no system-enforced approval before break-glass access is granted. It relies on the DBA team's manual compliance.
+
+[00:02:42] Edwin Joyson: Those are valid points. Any compensating controls that mitigate these gaps?
+
+[00:02:50] Ananya Aithal: Yes. For the HR termination gap, the SOC monitoring — particularly the Splunk rule that detects logins from accounts not matching active employee records — acts as a detective compensating control. For the break-glass approval gap, the CyberArk session recording and the mandatory SOC P1 alert on break-glass usage provide an audit trail even if the pre-approval is verbal.
+
+[00:03:18] Edwin Joyson: Overall CDE conclusion?
+
+[00:03:22] Ananya Aithal: I'd rate it as "Well Designed with minor gaps." The core control design is sound — CyberArk PAM with proper workflows, monitoring, and reconciliation. The gaps around HR integration, risk tolerance definition, and break-glass approval mechanism are areas for improvement but don't fundamentally undermine the control's ability to mitigate the risk of unauthorized privileged access.
+
+[00:03:48] Edwin Joyson: Agreed. Let's document this accordingly.
+
+[END OF TRANSCRIPT]

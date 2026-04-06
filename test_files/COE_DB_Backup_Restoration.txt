@@ -1,0 +1,34 @@
+Database Backup & Restoration - COE Testing Discussion
+Microsoft Teams Meeting Transcript
+Date: 2 April 2026
+Attendees: Ananya Aithal (Auditor), Raj Kumar (Auditor)
+
+---
+
+[00:00:05] Ananya Aithal: Raj, let's go through the COE testing for DB Backup. We tested a sample of 25 databases covering the period November 2025 to February 2026.
+
+[00:00:18] Raj Kumar: Sampling breakdown — 10 Tier 1, 10 Tier 2, and 5 Tier 3 databases. For each, we reviewed backup completion records, backup success rates, and where available, the restoration test results.
+
+[00:00:35] Raj Kumar: Backup completion results — 24 out of 25 databases had 100% backup success rate for the review period. The one exception was DB-ORAPROD-17, an Oracle Tier 2 database, which had 3 backup failures in December 2025. All 3 were re-run within the 4-hour SLA. Root cause was a temporary storage capacity issue — documented in ServiceNow incident INC-2025-78234. Remediated by expanding the backup storage allocation.
+
+[00:01:10] Ananya Aithal: So the backup failure was detected and remediated properly — the monitoring control worked. I'd classify that as the control operating as designed rather than a deviation.
+
+[00:01:22] Raj Kumar: Agreed. For restoration testing — we checked which of our 25 sampled databases had been included in the monthly restoration test during the review period. 18 out of 25 had been tested at least once. The 7 that weren't tested included 2 Tier 1 databases — DB-MSSQLPROD-03 and DB-PGPROD-12. Since Tier 1 databases are the most critical and the sampling is random, this ties back to the CDE gap about Tier 1 restoration test frequency.
+
+[00:01:55] Ananya Aithal: For the 18 that were tested — any restoration failures?
+
+[00:02:02] Raj Kumar: All 18 restored successfully within their defined RTO. The restoration test reports were signed off by Meera's team. Checksum validations and row count comparisons all passed.
+
+[00:02:18] Ananya Aithal: What about the DR failover test?
+
+[00:02:22] Raj Kumar: We reviewed the January 2026 quarterly DR test report. 15 databases were failed over — all successfully. RTOs and RPOs were met. The test ran for 4 hours with production workloads. Failback was clean. Report was signed off by Vikram Singh and the BCP team.
+
+[00:02:42] Ananya Aithal: Cross-region replication for AWS databases?
+
+[00:02:48] Raj Kumar: We reviewed the replication status for the 8 AWS-hosted databases in our sample. All showed continuous replication with lag consistently under 5 minutes. No replication failures during the review period.
+
+[00:03:05] Ananya Aithal: COE conclusion — the control is operating effectively. The one backup failure was detected and remediated within SLA. The 4-hour SLA was met. All restoration tests passed. The only concern is that 2 Tier 1 databases weren't restoration-tested during the 4-month review period, which is a sampling coverage observation rather than a control operating failure. No deviations.
+
+[00:03:30] Raj Kumar: Agreed. Clean COE.
+
+[END OF TRANSCRIPT]

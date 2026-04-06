@@ -1,0 +1,44 @@
+Database Privileged Access Management - Control Walkthrough 2 (Monitoring & Alerting)
+Microsoft Teams Meeting Transcript
+Date: 18 March 2026
+Attendees: Rajesh Nair (DBA Team Lead), Ananya Aithal (Auditor), Kotha Phaneendra (Auditor), Suresh Kumar (SOC Analyst)
+
+---
+
+[00:00:10] Ananya Aithal: Hi everyone. This is our follow-up walkthrough for the Database Privileged Access Management control, specifically focusing on monitoring and alerting. Rajesh, last time you mentioned session recording — can we dive deeper into that?
+
+[00:00:30] Rajesh Nair: Sure. So every privileged session initiated through CyberArk is recorded. This includes all interactive DBA sessions to production databases. The recordings capture the full session — every command executed, every query run. These recordings are stored for 12 months in compliance with the bank's data retention policy.
+
+[00:00:58] Suresh Kumar: From the SOC perspective, we also have real-time alerting configured. We use Splunk to ingest CyberArk session logs, database audit logs, and OS-level authentication events. We have 14 specific detection rules for privileged database access anomalies.
+
+[00:01:25] Kotha Phaneendra: Can you give us examples of what those detection rules cover?
+
+[00:01:32] Suresh Kumar: Sure. The key ones are — first, any privileged login outside of business hours, which is 7 AM to 9 PM local time. Second, any direct database login that bypasses CyberArk — this is critical because all access should go through the PAM solution. Third, bulk data extraction — we flag any query that returns more than 10,000 rows from tables classified as containing PII. Fourth, DDL commands like DROP TABLE or ALTER SCHEMA on production databases. Fifth, any use of break-glass accounts triggers an immediate P1 alert.
+
+[00:02:15] Ananya Aithal: What's the response SLA when an alert fires?
+
+[00:02:20] Suresh Kumar: For P1 alerts like break-glass usage or CyberArk bypass, response is within 15 minutes — a SOC analyst acknowledges and begins investigation. For P2 alerts like after-hours access, response is within 1 hour. P3 alerts like bulk data queries are reviewed within 4 hours during business hours.
+
+[00:02:50] Ananya Aithal: How many alerts are you seeing on average?
+
+[00:02:55] Suresh Kumar: In the last quarter — Q4 2025 — we had 847 total alerts related to privileged database access. Of those, 12 were P1, 89 were P2, and 746 were P3. The P1 alerts — 8 were legitimate break-glass usage during production incidents, 3 were false positives from a misconfigured service account, and 1 was a genuine policy violation where a DBA connected directly without using CyberArk. That one resulted in a formal warning and retraining.
+
+[00:03:35] Rajesh Nair: I should add that we do a monthly review of all P1 and P2 alerts with the SOC team. This is documented in our monthly operational risk report which goes to the Technology Risk Committee.
+
+[00:03:55] Ananya Aithal: What about the direct connection bypass — the policy violation you mentioned. How was it detected?
+
+[00:04:05] Suresh Kumar: The Oracle audit trail showed a direct SQL*Plus connection from a DBA workstation to a production database using the SYS account. CyberArk had no corresponding session record. Our Splunk correlation rule matched the database login event against CyberArk session initiation events, and when there was no match within a 5-minute window, it triggered the alert.
+
+[00:04:35] Kotha Phaneendra: Is there any monitoring for dormant privileged accounts?
+
+[00:04:42] Rajesh Nair: Yes. We run a monthly report from CyberArk identifying any vaulted privileged account that hasn't been checked out in 90 days. These are flagged for review — either the account is confirmed still needed with business justification, or it gets disabled. Last month we disabled 5 dormant accounts out of approximately 180 total vaulted accounts.
+
+[00:05:10] Ananya Aithal: And the evidence for monitoring — what can you provide?
+
+[00:05:18] Suresh Kumar: We can provide Splunk alert logs, the monthly P1/P2 alert review minutes, the SOC investigation reports for any confirmed violations, and dashboard screenshots showing alert volumes and response times.
+
+[00:05:38] Rajesh Nair: From my side, the dormant account reports, the monthly CyberArk reconciliation reports which we discussed last time, and the Technology Risk Committee meeting minutes where we present the monthly operational risk report.
+
+[00:05:55] Ananya Aithal: Excellent. This gives us a very complete picture. We'll proceed with our testing based on both walkthroughs. Thank you all.
+
+[END OF TRANSCRIPT]

@@ -1,0 +1,40 @@
+Database Privileged Access Management - COE Testing Discussion
+Microsoft Teams Meeting Transcript
+Date: 1 April 2026
+Attendees: Ananya Aithal (Auditor), Raj Kumar (Auditor), Edwin Joyson (Audit Lead)
+
+---
+
+[00:00:08] Edwin Joyson: Let's review the COE testing results for DB Privileged Access Management. Ananya, Raj — what did you find?
+
+[00:00:18] Ananya Aithal: We tested a sample of 25 privileged access requests from Q4 2025 and Q1 2026, covering the period October 2025 to March 2026. The sample was stratified — 10 new access grants, 8 access modifications, 5 access revocations, and 2 break-glass requests.
+
+[00:00:42] Raj Kumar: For the 10 new access grants — all 10 had the full four-step approval chain documented in ServiceNow. All were provisioned within the 3-business-day SLA. All had CyberArk vault entries created. So no deviations there.
+
+[00:01:02] Ananya Aithal: For the 8 access modifications — 7 out of 8 were fully compliant. However, we found 1 deviation. Ticket SR-2025-45892 — a request to add db_owner role on an MSSQL production database. The line manager approval was obtained, but the DBA team lead approval was self-approved. Meaning Rajesh approved his own team member's request, which is within his authority, but the team member was requesting access to a database that Rajesh himself also had access to. There's no segregation of duties check in the approval workflow for same-team requests.
+
+[00:01:45] Edwin Joyson: That's a valid finding. Is this a systemic issue or a one-off?
+
+[00:01:50] Raj Kumar: We reviewed all 10 new grants as well for this pattern. We found 2 more instances where the DBA team lead approved access for team members to databases he also had access to. So 3 out of 18 grants/modifications — about 16.7% — had this potential SoD issue. However, none of these resulted in any actual misuse based on the session recording evidence we reviewed.
+
+[00:02:20] Ananya Aithal: For the 5 access revocations — all 5 were processed. However, 1 revocation — for a contractor whose engagement ended — was processed 12 days after the contract end date. The SLA is 5 business days. The CyberArk account was disabled on day 12. We checked the session logs and confirmed no access was attempted during the 7-day delay. But the process gap exists.
+
+[00:02:55] Ananya Aithal: For the 2 break-glass requests — both were for legitimate P1 incidents. Both had the VP-level verbal approval documented retrospectively within 2 hours. CyberArk session recordings were available for both. Splunk P1 alerts fired correctly for both. SOC investigation reports were completed for both. No issues.
+
+[00:03:22] Edwin Joyson: So in summary — 2 deviations out of 25 samples?
+
+[00:03:28] Raj Kumar: Correct. Deviation 1: Segregation of duties gap in approval workflow for same-team DBA access requests — 3 out of 18 applicable samples. Deviation 2: Late revocation of contractor access — 1 out of 5 revocation samples, 12 days vs 5-day SLA.
+
+[00:03:50] Ananya Aithal: I'd also note that the monthly reconciliation reports we reviewed — October through February — all showed less than 5% unvaulted accounts, consistent with what Rajesh told us. January had 8 unvaulted accounts (2.4%), February had 5 (1.5%). All were remediated within the 5-business-day window.
+
+[00:04:15] Edwin Joyson: And the quarterly recertification?
+
+[00:04:20] Raj Kumar: We reviewed the Q4 2025 recertification. It was completed on 18 January 2026 — within the 15-business-day window. Rajesh signed off on all 180 vaulted accounts. 7 accounts were revoked during recertification — 3 were for staff who had moved to different roles, 2 were dormant test accounts, and 2 were for contractors whose engagements had ended but hadn't been caught by the standard offboarding process — which ties back to the HR integration gap we noted in CDE.
+
+[00:04:55] Edwin Joyson: Good. COE conclusion?
+
+[00:05:02] Ananya Aithal: The control is operating, but with deviations. The core provisioning and vaulting process works well — CyberArk is functioning, reconciliation catches gaps, recertification is timely. But the SoD gap in approvals and the delayed revocation indicate process weaknesses that should be raised as exceptions. I'd say the control is operating with minor exceptions.
+
+[00:05:25] Edwin Joyson: Agreed. Let's document both as exceptions with medium severity.
+
+[END OF TRANSCRIPT]

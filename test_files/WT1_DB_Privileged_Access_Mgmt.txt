@@ -1,0 +1,60 @@
+Database Privileged Access Management - Control Walkthrough 1
+Microsoft Teams Meeting Transcript
+Date: 15 March 2026
+Attendees: Rajesh Nair (DBA Team Lead, Control Owner), Ananya Aithal (Auditor), Edwin Joyson (Audit Lead), Priya Menon (IAM Manager)
+
+---
+
+[00:00:15] Edwin Joyson: Good morning everyone, thanks for joining. This is the first control walkthrough for the Database Privileged Access Management control as part of the Database Services Audit. Ananya, would you like to walk us through what we're looking to understand today?
+
+[00:00:42] Ananya Aithal: Sure, thanks Edwin. Rajesh, we'd like to understand how privileged access to production databases is managed end-to-end. Specifically — how are privileged accounts identified, how is access granted and revoked, and what monitoring is in place.
+
+[00:01:15] Rajesh Nair: Absolutely. So let me walk you through our process. We manage privileged access across approximately 340 production database instances. These span Oracle, Microsoft SQL Server, PostgreSQL, and MongoDB environments across both on-premises data centers in Singapore and Chennai, and AWS cloud — primarily RDS and Aurora.
+
+[00:01:48] Ananya Aithal: And who qualifies as a privileged user?
+
+[00:01:55] Rajesh Nair: Privileged users fall into three categories. First, DBAs — that's my team of 12 people who have full administrative access. Second, application service accounts that have elevated permissions like schema modification rights. Third, break-glass accounts which are emergency access accounts used only during P1/P2 incidents.
+
+[00:02:30] Priya Menon: I can add the IAM perspective here. All privileged access requests go through our CyberArk PAM solution. The workflow is — the requestor raises a ticket in ServiceNow, their line manager approves, then the DBA team lead — that's Rajesh — provides technical approval, and finally the IAM team provisions the access in CyberArk.
+
+[00:03:05] Ananya Aithal: What's the typical turnaround time for provisioning?
+
+[00:03:12] Priya Menon: Standard SLA is 3 business days. Emergency access through break-glass can be provisioned within 2 hours but requires VP-level approval and a P1/P2 incident ticket reference.
+
+[00:03:35] Edwin Joyson: How do you ensure that privileged accounts are vaulted properly in CyberArk?
+
+[00:03:42] Rajesh Nair: We run a monthly reconciliation. The DBA team exports the list of all database accounts with elevated privileges directly from each database engine — for Oracle that's DBA role holders, for MSSQL it's sysadmin and db_owner, for PostgreSQL it's superuser role, and for MongoDB it's root and dbAdmin roles. We then compare this against what's vaulted in CyberArk.
+
+[00:04:20] Ananya Aithal: What happens when there's a discrepancy?
+
+[00:04:25] Rajesh Nair: Any unvaulted privileged account gets flagged and must be either vaulted within 5 business days or decommissioned with documented justification. Last quarter we found 7 such accounts across 340 instances — 4 were legacy service accounts that needed vaulting, and 3 were test accounts that should have been removed.
+
+[00:04:55] Ananya Aithal: That's a 2% exception rate. Is there a risk tolerance defined?
+
+[00:05:02] Rajesh Nair: Yes, the risk appetite is less than 5% unvaulted accounts. We've been consistently below that, but the target is zero.
+
+[00:05:18] Priya Menon: I should mention that CyberArk also enforces automatic password rotation every 30 days for all vaulted accounts. Session recording is enabled for all interactive privileged sessions.
+
+[00:05:38] Ananya Aithal: And recertification — how often are privileged access rights reviewed?
+
+[00:05:45] Rajesh Nair: Quarterly. The control owner — that's me — reviews all privileged access assignments. Any access that's no longer required is revoked. The recertification is tracked in ServiceNow and must be completed within 15 business days of the review cycle starting.
+
+[00:06:10] Edwin Joyson: What evidence would you be able to provide us for testing?
+
+[00:06:18] Rajesh Nair: We can provide the CyberArk vault inventory report, the monthly reconciliation reports, ServiceNow access request tickets, the quarterly recertification sign-off sheets, and session recording logs from CyberArk.
+
+[00:06:40] Priya Menon: From IAM side, we can provide the access provisioning audit trail from ServiceNow, the approval chain records, and the password rotation compliance reports from CyberArk.
+
+[00:07:00] Ananya Aithal: Perfect. One more question — what are the key risks if this control fails?
+
+[00:07:08] Rajesh Nair: The primary risk is unauthorized access to sensitive production data — customer PII, financial records, transaction data. A compromised privileged account could lead to data exfiltration, unauthorized data modification, or complete database destruction. Given we handle data for 15 million customers across 20 markets, the impact would be severe.
+
+[00:07:40] Edwin Joyson: Thank you Rajesh and Priya. Very comprehensive. We'll schedule a follow-up walkthrough to go deeper into the monitoring and alerting side. Ananya, anything else?
+
+[00:07:55] Ananya Aithal: Just to confirm — the control operates on a monthly cycle for reconciliation and quarterly for recertification, correct?
+
+[00:08:05] Rajesh Nair: That's correct.
+
+[00:08:10] Ananya Aithal: Great, thank you both. Very clear walkthrough.
+
+[END OF TRANSCRIPT]

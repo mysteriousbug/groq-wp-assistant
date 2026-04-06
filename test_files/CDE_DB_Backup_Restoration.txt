@@ -1,0 +1,26 @@
+Database Backup & Restoration - CDE Testing Discussion
+Microsoft Teams Meeting Transcript
+Date: 26 March 2026
+Attendees: Ananya Aithal (Auditor), Raj Kumar (Auditor), Edwin Joyson (Audit Lead)
+
+---
+
+[00:00:10] Edwin Joyson: Let's do the CDE for DB Backup and Restoration. Ananya?
+
+[00:00:18] Ananya Aithal: The control design is strong overall. Key design strengths — the 3-2-1 backup strategy is industry best practice. The tiered approach with different RPO/RTO targets by database tier is well aligned to business impact. Automated backups via Commvault and AWS Backup reduce human error. The 15-minute transaction log backups for Tier 1 databases provide a tight RPO. Monthly restoration testing on a rotating sample of 10 databases per month means the entire fleet would be tested approximately every 3 years, which is reasonable.
+
+[00:01:00] Raj Kumar: I have one design gap. The monthly restoration test samples 10 out of 340 databases. At that rate, it takes 34 months to cycle through all databases. A Tier 1 database could theoretically go nearly 3 years without a restoration test. Given these are the most critical databases, the sampling strategy could be improved — perhaps quarterly mandatory testing for all Tier 1 databases.
+
+[00:01:30] Ananya Aithal: Agreed. Second gap — there's no automated integrity check on the backups themselves. The restoration test validates recoverability, but between monthly tests, a corrupted backup could go undetected for up to 30 days. Meera mentioned they added archive log validation after the Oracle corruption incident, but that's Oracle-specific — there's no equivalent check for MSSQL, PostgreSQL, or MongoDB.
+
+[00:01:58] Edwin Joyson: Compensating controls?
+
+[00:02:02] Ananya Aithal: The quarterly DR failover test provides an additional validation layer for the 15 databases included. The Commvault daily backup success rate monitoring catches failures quickly. And the cross-region replication for AWS provides redundancy even if local backups are corrupted.
+
+[00:02:22] Edwin Joyson: CDE conclusion?
+
+[00:02:26] Ananya Aithal: Well Designed with minor gaps. The backup infrastructure and processes are sound. The gaps around restoration test sampling frequency for Tier 1 and cross-platform backup integrity validation are improvement areas but don't represent fundamental design weaknesses.
+
+[00:02:42] Edwin Joyson: Good. Let's document it.
+
+[END OF TRANSCRIPT]

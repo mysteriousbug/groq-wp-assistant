@@ -1,0 +1,50 @@
+Database Backup & Restoration - Control Walkthrough
+Microsoft Teams Meeting Transcript
+Date: 20 March 2026
+Attendees: Meera Sharma (Backup Operations Lead, Control Owner), Ananya Aithal (Auditor), Edwin Joyson (Audit Lead), Vikram Singh (DR Manager)
+
+---
+
+[00:00:12] Edwin Joyson: Good morning. Today's walkthrough covers the Database Backup and Restoration control. Meera, could you start by giving us an overview of the backup strategy?
+
+[00:00:28] Meera Sharma: Of course. We operate a 3-2-1 backup strategy across all production database environments. That means 3 copies of data, on 2 different media types, with 1 copy offsite. For our 340 production database instances, backups run on the following schedule — full backups every Sunday at 2 AM local time, incremental backups daily at 2 AM, and transaction log backups every 15 minutes for all critical databases.
+
+[00:01:05] Ananya Aithal: How do you define "critical" databases?
+
+[00:01:10] Meera Sharma: Critical databases are those classified as Tier 1 in our Business Impact Assessment. These support customer-facing applications — core banking, payments, trade finance, and wealth management. We have 87 Tier 1 databases, 145 Tier 2, and 108 Tier 3 out of the total 340.
+
+[00:01:38] Ananya Aithal: And the backup infrastructure?
+
+[00:01:44] Meera Sharma: On-premises databases use Commvault as the backup solution. Backups go to a dedicated backup storage array in each data center, and then replicated to the DR site within 4 hours. For AWS databases — our RDS and Aurora instances — we use native AWS Backup with cross-region replication to our DR region. Retention is 90 days for daily backups and 7 years for monthly backups, which is our regulatory requirement.
+
+[00:02:20] Vikram Singh: I can speak to the DR side. We have a dedicated DR site in Mumbai. All backup replicas are encrypted using AES-256 both in transit and at rest. We test DR recovery quarterly as part of our Business Continuity Plan.
+
+[00:02:45] Ananya Aithal: Let's talk about backup monitoring. How do you know if a backup fails?
+
+[00:02:52] Meera Sharma: Commvault sends automated alerts for any backup failure. The backup operations team — that's my team of 4 people — reviews the backup status dashboard every morning by 9 AM. Any failed backup must be re-run within 4 hours. If it fails again, it's escalated to the DBA team lead and a ServiceNow incident is raised.
+
+[00:03:20] Meera Sharma: We track backup success rate as a KRI — Key Risk Indicator. Our target is 99.5% success rate. Last quarter we achieved 99.7% across all instances. The 0.3% failures were primarily due to storage capacity issues on 3 legacy Oracle databases which have since been remediated.
+
+[00:03:48] Edwin Joyson: What about restoration testing? How do you verify that backups are actually recoverable?
+
+[00:03:55] Meera Sharma: We perform monthly restoration tests on a rotating sample of databases. Each month, we randomly select 10 databases — ensuring a mix of Tier 1, 2, and 3 — and perform a full restoration to an isolated test environment. We validate data integrity by running checksums and comparing row counts against production. The restoration must complete within the defined RTO — Recovery Time Objective — which is 4 hours for Tier 1, 8 hours for Tier 2, and 24 hours for Tier 3.
+
+[00:04:35] Ananya Aithal: And if a restoration test fails?
+
+[00:04:40] Meera Sharma: It gets treated as a P2 incident. The root cause is investigated, remediated, and the test is re-run. We haven't had a restoration test failure in the last 6 months, but prior to that we had 2 failures — both due to corrupted archive logs on Oracle instances. We've since implemented archive log validation as part of the daily backup process.
+
+[00:05:10] Vikram Singh: For DR, we do quarterly full DR failover tests. The last one was in January 2026 — we successfully failed over 15 critical databases to the Mumbai DR site and ran production workloads for 4 hours before failing back. All databases met their RTO and RPO targets.
+
+[00:05:40] Ananya Aithal: RPO — what's the defined RPO?
+
+[00:05:45] Vikram Singh: RPO is 15 minutes for Tier 1 databases — hence the 15-minute transaction log backup frequency. Tier 2 is 1 hour, and Tier 3 is 24 hours.
+
+[00:06:00] Ananya Aithal: What evidence can you provide for our testing?
+
+[00:06:08] Meera Sharma: Backup success rate reports from Commvault, monthly restoration test reports with sign-off, the backup failure incident tickets from ServiceNow, backup policy configuration screenshots, and the storage capacity monitoring reports.
+
+[00:06:30] Vikram Singh: From DR side, the quarterly DR test reports, the BCP documentation, cross-region replication status reports, and the encryption configuration evidence.
+
+[00:06:48] Edwin Joyson: Very thorough. Thank you Meera and Vikram.
+
+[END OF TRANSCRIPT]

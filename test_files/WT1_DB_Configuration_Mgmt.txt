@@ -1,0 +1,52 @@
+Database Configuration Management - Control Walkthrough
+Microsoft Teams Meeting Transcript
+Date: 22 March 2026
+Attendees: Arun Patel (Senior DBA, Control Owner), Ananya Aithal (Auditor), Raj Kumar (Auditor), Neha Gupta (Change Management Lead)
+
+---
+
+[00:00:08] Ananya Aithal: Hi Arun, Neha. Thanks for your time. Today we're walking through the Database Configuration Management control. Arun, can you start with how database configurations are standardized?
+
+[00:00:25] Arun Patel: Sure. We maintain a set of configuration baselines — what we call "golden images" — for each database platform. We have baselines for Oracle 19c, MSSQL 2019 and 2022, PostgreSQL 14 and 15, and MongoDB 6.0. These baselines define security parameters, auditing settings, network configurations, and performance parameters.
+
+[00:00:55] Arun Patel: The baselines are aligned to CIS Benchmarks — we use CIS Level 1 as our minimum standard. For Tier 1 databases, we apply CIS Level 2. The baselines are reviewed and updated quarterly by the DBA Architecture team and approved by the Technology Risk team.
+
+[00:01:20] Raj Kumar: How do you ensure new databases are deployed with the correct configuration?
+
+[00:01:28] Arun Patel: All new database deployments go through our automated provisioning pipeline. We use Ansible playbooks for on-premises deployments and Terraform modules for AWS deployments. The playbooks and modules are version-controlled in GitLab and enforce the golden image configurations. No database can be provisioned outside this pipeline — the infrastructure team doesn't have permissions to create databases manually in production.
+
+[00:01:58] Ananya Aithal: What about configuration drift — how do you detect if someone changes a configuration after deployment?
+
+[00:02:08] Arun Patel: We run weekly configuration compliance scans using Qualys. The scans compare the actual configuration of each database instance against the golden image baseline. Any deviation is flagged as a finding. The findings are categorized — Critical deviations must be remediated within 24 hours, High within 5 business days, Medium within 15 business days, and Low within 30 business days.
+
+[00:02:42] Ananya Aithal: What's your current compliance posture?
+
+[00:02:48] Arun Patel: As of the last scan on 15 March, we're at 96.8% compliance across all 340 instances. The 3.2% non-compliance is primarily Medium and Low findings — things like non-standard audit log retention settings on some legacy PostgreSQL instances and missing TLS 1.3 enforcement on a few MongoDB clusters that are scheduled for upgrade in April.
+
+[00:03:18] Neha Gupta: I can cover the change management aspect. Any configuration change to a production database requires a formal Change Request — CR — through our ServiceNow ITSM platform. The change goes through a three-tier approval process — the requesting DBA raises the CR, the DBA team lead reviews the technical impact assessment, and the Change Advisory Board — CAB — approves it during the weekly CAB meeting every Wednesday.
+
+[00:03:50] Raj Kumar: What about emergency changes?
+
+[00:03:55] Neha Gupta: Emergency changes have an expedited process. They require verbal approval from the DBA team lead and the IT Service Manager, and the CR must be raised retrospectively within 24 hours. Emergency changes are reviewed in the next CAB meeting. In the last quarter, we had 8 emergency changes out of a total of 127 database changes — that's about 6.3%.
+
+[00:04:25] Ananya Aithal: Is there post-implementation verification?
+
+[00:04:30] Arun Patel: Yes, every change has a Post-Implementation Review — PIR — step. After the change is implemented, the DBA runs the Qualys compliance scan on the affected instances to verify the change didn't introduce any new deviations. The PIR must be completed within 48 hours of implementation and signed off in ServiceNow.
+
+[00:04:58] Ananya Aithal: What about database hardening — are there specific hardening checks?
+
+[00:05:05] Arun Patel: Absolutely. Our hardening checklist includes — removal of default accounts and sample databases, disabling unnecessary features and services, enforcing strong authentication — no password-based auth for privileged accounts, those go through CyberArk — enabling audit logging for all DDL and DML operations on sensitive tables, network-level restrictions using database firewalls, and encryption of data at rest using TDE for Oracle and MSSQL, native encryption for PostgreSQL, and LUKS for MongoDB.
+
+[00:05:45] Ananya Aithal: Evidence for testing?
+
+[00:05:50] Arun Patel: Qualys compliance scan reports, golden image baseline documents, Ansible/Terraform code from GitLab showing the provisioning configurations, the quarterly baseline review meeting minutes, and the hardening checklist completion records for new deployments.
+
+[00:06:12] Neha Gupta: From change management — CR records from ServiceNow, CAB meeting minutes, PIR completion records, and the emergency change retrospective reviews.
+
+[00:06:30] Ananya Aithal: Great. One last question — what's the key risk if this control fails?
+
+[00:06:38] Arun Patel: Misconfigured databases are one of the top attack vectors. A missing hardening setting — like leaving default accounts active or disabling audit logging — could allow an attacker to gain unauthorized access and operate undetected. The CIS Benchmark misconfigurations are directly mapped to CVEs in many cases. It's essentially the foundation that all other database controls rely on.
+
+[00:07:00] Raj Kumar: Very clear. Thanks Arun and Neha.
+
+[END OF TRANSCRIPT]

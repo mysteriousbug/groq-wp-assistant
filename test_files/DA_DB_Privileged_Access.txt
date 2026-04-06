@@ -1,0 +1,40 @@
+Database Privileged Access Management - Data Analytics Review
+Microsoft Teams Meeting Transcript
+Date: 3 April 2026
+Attendees: Ananya Aithal (Auditor / DA Lead), Haidi (DA Team), Edwin Joyson (Audit Lead)
+
+---
+
+[00:00:10] Ananya Aithal: Hi everyone. Today I'm presenting the DA results for the DB Privileged Access Management control. Haidi and I built three analytics use cases for this control.
+
+[00:00:28] Ananya Aithal: Use Case 1 — Privileged Account Inventory Completeness. We obtained the full EID Report — that's the Enterprise Identity Database extract — listing all active employees and contractors with database access. We cross-referenced this against the CyberArk vault inventory export and the native database privilege reports from all 340 instances.
+
+[00:00:55] Ananya Aithal: Population was 1,247 unique database accounts with elevated privileges across all 340 instances. Of these, 1,198 were matched to CyberArk vault entries. That leaves 49 accounts — 3.9% — that had elevated database privileges but were not vaulted in CyberArk at the point-in-time snapshot on 28 February 2026.
+
+[00:01:25] Haidi: Breaking down the 49 unvaulted accounts — 31 were service accounts associated with application middleware, 12 were DBA personal accounts on legacy PostgreSQL instances that were recently migrated from a different PAM solution, and 6 were accounts on MongoDB clusters that were provisioned through a separate process that wasn't integrated with CyberArk.
+
+[00:01:52] Edwin Joyson: 3.9% is within the 5% risk appetite, but it's higher than the 2.4% Rajesh reported for January. Why the discrepancy?
+
+[00:02:05] Ananya Aithal: The reconciliation Rajesh runs is based on CyberArk's built-in discovery scan, which doesn't cover MongoDB accounts. Our DA was more comprehensive because we pulled directly from MongoDB's user admin database. If we exclude MongoDB, the unvaulted rate drops to 2.1% — consistent with Rajesh's reporting. The MongoDB gap is a new finding.
+
+[00:02:30] Ananya Aithal: Use Case 2 — Splunk Active Use Case Validation. We obtained the list of 14 detection rules from the SOC team and validated that all 14 were active and generating alerts. We pulled the Splunk alert logs for the period October 2025 to February 2026.
+
+[00:02:52] Haidi: Results — all 14 rules were active. However, Rule #7 — "Detection of direct database login bypassing CyberArk" — had a 23% false positive rate. Out of 67 alerts from this rule, 15 were genuine CyberArk bypasses, 52 were false positives triggered by CyberArk's own health-check connections which use a different connection path. The SOC team confirmed they're aware of this and have a tuning request in their backlog.
+
+[00:03:25] Ananya Aithal: Use Case 3 — Privileged Session Activity Analysis. We analyzed 12,847 privileged session recordings from CyberArk for the 5-month period. We built a Python script that parsed the session metadata to identify high-risk activity patterns.
+
+[00:03:48] Ananya Aithal: Key findings — 142 sessions involved DDL commands on production databases. All 142 had corresponding Change Request tickets in ServiceNow. 38 sessions occurred outside business hours — 35 were linked to P1/P2 incident tickets, 2 were during a planned maintenance window, and 1 had no documented justification. That last one is a new exception.
+
+[00:04:20] Haidi: We also identified 7 sessions where the PID — that's the Privileged Identity — was checked out by one user but the session commands suggest a different person was operating. We flagged this based on typing pattern analysis and the fact that the session IP address didn't match the user's assigned workstation. This could indicate credential sharing, which is a policy violation.
+
+[00:04:50] Edwin Joyson: That's a significant finding. Is the evidence strong enough?
+
+[00:04:55] Ananya Aithal: It's circumstantial — the IP mismatch and behavioral indicators aren't conclusive proof. We'll raise it as a medium-severity exception with a recommendation to investigate further. But the data is compelling — 7 out of 12,847 sessions is a very low rate, but credential sharing of privileged accounts is a serious policy violation regardless of frequency.
+
+[00:05:20] Edwin Joyson: Agreed. DA conclusion?
+
+[00:05:25] Ananya Aithal: Overall, the DA supports the control's effectiveness with exceptions. The core vaulting coverage is good at 96.1%, but the MongoDB gap needs remediation. The Splunk monitoring is functional but has tuning issues. The session analysis found 2 exceptions — 1 unjustified after-hours session and 7 potential credential sharing instances. All three use cases produced actionable findings that complement the CDE and COE testing.
+
+[00:05:55] Edwin Joyson: Excellent work Ananya and Haidi. Very thorough analytics.
+
+[END OF TRANSCRIPT]
