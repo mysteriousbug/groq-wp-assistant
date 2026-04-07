@@ -1,366 +1,257 @@
 """
 UC-01 v2: Agentic AI Audit Workpaper Assistant
-Streamlit Application — Multi-Control, Non-Linear Workflow
+Streamlit App with persistent DB storage.
 
 Features:
-  - Multi-control audit projects
-  - Multiple transcript uploads per control
-  - Non-linear workflow (CDE/COE/DA in any order)
-  - Live workpaper preview after every step
-  - Full manual editing capability
-  - AI-powered conclusion generation
-  - Professional .docx export
+  - Persistent storage (SQLite / Azure PostgreSQL / Azure SQL)
+  - Multi-document uploads (transcripts + process docs, access matrices, etc.)
+  - AI-suggested CDE/COE/DA test procedures from RCM
+  - Auditor override of suggestions before testing
+  - Non-linear workflow, live preview, .docx export
 
 Author: Ananya Aithal
 """
 
 import streamlit as st
+import os
 import json
 from datetime import datetime
 
-from models import (
-    AuditProject, ControlWorkpaper, Transcript, TestingPhase,
-    ControlEffectiveness, ExceptionSeverity, ExceptionRecord,
-    CDEResult, COEResult, DAResult, RCMRow, WalkthroughExtraction
+from db_models import (
+    init_db, get_db, AuditProject, ControlWorkpaper,
+    WorkpaperDocument, TestingPhase, DocumentType,
+    ControlEffectiveness, ExceptionSeverity
 )
 from ai_engine import (
-    extract_walkthrough, build_rcm_from_extractions,
-    analyze_cde, analyze_coe, analyze_da,
-    identify_exceptions, generate_conclusion,
-    summarize_transcript
+    build_rcm, suggest_test_procedures, analyze_cde, analyze_coe,
+    analyze_da, identify_exceptions, generate_conclusion,
+    summarize_document
 )
 from exporter import export_workpaper
 
-
 # ─────────────────────────────────────────────
-# Page Config & Styling
+# Init
 # ─────────────────────────────────────────────
 
 st.set_page_config(
     page_title="UC-01 v2 | Audit Workpaper Assistant",
-    page_icon="📋",
-    layout="wide",
-    initial_sidebar_state="expanded",
+    page_icon="📋", layout="wide", initial_sidebar_state="expanded",
 )
+
+init_db()
+
+UPLOAD_DIR = os.environ.get("UPLOAD_DIR", "./uploads")
+os.makedirs(UPLOAD_DIR, exist_ok=True)
+
+DOC_TYPE_OPTIONS = [dt.value for dt in DocumentType]
+PHASE_OPTIONS = [tp.value for tp in TestingPhase]
 
 st.markdown("""
 <style>
-    @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;700&family=JetBrains+Mono:wght@400;500&display=swap');
-
-    .stApp {
-        font-family: 'DM Sans', sans-serif;
-    }
-    
-    .main-header {
-        background: linear-gradient(135deg, #1B3A5C 0%, #2C5F8A 100%);
-        padding: 1.5rem 2rem;
-        border-radius: 12px;
-        margin-bottom: 1.5rem;
-        color: white;
-    }
-    .main-header h1 {
-        margin: 0; font-size: 1.8rem; font-weight: 700;
-    }
-    .main-header p {
-        margin: 0.3rem 0 0 0; opacity: 0.85; font-size: 0.95rem;
-    }
-
-    .phase-card {
-        border: 2px solid #e0e0e0;
-        border-radius: 10px;
-        padding: 1rem 1.2rem;
-        margin-bottom: 0.8rem;
-        transition: all 0.2s;
-    }
-    .phase-card:hover { border-color: #2C5F8A; }
-    .phase-complete { border-color: #27AE60 !important; background: #f0faf4; }
-    .phase-active { border-color: #F39C12 !important; background: #fef9ed; }
-
-    .status-badge {
-        display: inline-block;
-        padding: 0.2rem 0.7rem;
-        border-radius: 20px;
-        font-size: 0.75rem;
-        font-weight: 600;
-        text-transform: uppercase;
-        letter-spacing: 0.5px;
-    }
-    .badge-effective { background: #27AE60; color: white; }
-    .badge-partial { background: #F39C12; color: white; }
-    .badge-ineffective { background: #E74C3C; color: white; }
-    .badge-pending { background: #95A5A6; color: white; }
-
-    .metric-row {
-        display: flex; gap: 1rem; margin-bottom: 1rem;
-    }
-    .metric-box {
-        flex: 1;
-        background: #f7f9fc;
-        border-radius: 8px;
-        padding: 0.8rem 1rem;
-        text-align: center;
-        border: 1px solid #e8edf2;
-    }
-    .metric-box .value { font-size: 1.5rem; font-weight: 700; color: #1B3A5C; }
-    .metric-box .label { font-size: 0.75rem; color: #7f8c8d; text-transform: uppercase; }
-
-    .transcript-chip {
-        display: inline-block;
-        background: #eef2f7;
-        border-radius: 6px;
-        padding: 0.3rem 0.7rem;
-        margin: 0.2rem;
-        font-size: 0.8rem;
-        border: 1px solid #d5dde5;
-    }
-
-    div[data-testid="stSidebar"] {
-        background: #f7f9fc;
-    }
+    .main-header { background: linear-gradient(135deg, #1B3A5C 0%, #2C5F8A 100%);
+        padding: 1.5rem 2rem; border-radius: 12px; margin-bottom: 1.5rem; color: white; }
+    .main-header h1 { margin: 0; font-size: 1.8rem; }
+    .main-header p { margin: 0.3rem 0 0 0; opacity: 0.85; }
+    .phase-complete { color: #27AE60; font-weight: bold; }
+    .phase-pending { color: #95A5A6; }
+    .badge-effective { background: #27AE60; color: white; padding: 2px 8px; border-radius: 10px; }
+    .badge-partial { background: #F39C12; color: white; padding: 2px 8px; border-radius: 10px; }
+    .badge-ineffective { background: #E74C3C; color: white; padding: 2px 8px; border-radius: 10px; }
+    .badge-pending { background: #95A5A6; color: white; padding: 2px 8px; border-radius: 10px; }
 </style>
 """, unsafe_allow_html=True)
 
 
-# ─────────────────────────────────────────────
-# Session State Initialization
-# ─────────────────────────────────────────────
-
-def init_state():
-    if "project" not in st.session_state:
-        st.session_state.project = None
-    if "active_control" not in st.session_state:
-        st.session_state.active_control = None
-    if "active_phase" not in st.session_state:
-        st.session_state.active_phase = None
-    if "extractions" not in st.session_state:
-        st.session_state.extractions = {}  # control_name -> list[WalkthroughExtraction]
-
-init_state()
+def eff_badge(eff: str) -> str:
+    m = {"Effective": "badge-effective", "Partially Effective": "badge-partial",
+         "Ineffective": "badge-ineffective"}
+    cls = m.get(eff, "badge-pending")
+    return f'<span class="{cls}">{eff}</span>'
 
 
 # ─────────────────────────────────────────────
-# Helper Functions
-# ─────────────────────────────────────────────
-
-def get_active_workpaper() -> ControlWorkpaper | None:
-    if st.session_state.project and st.session_state.active_control:
-        return st.session_state.project.get_workpaper(st.session_state.active_control)
-    return None
-
-
-def effectiveness_badge(eff: ControlEffectiveness) -> str:
-    cls_map = {
-        ControlEffectiveness.EFFECTIVE: "badge-effective",
-        ControlEffectiveness.PARTIALLY_EFFECTIVE: "badge-partial",
-        ControlEffectiveness.INEFFECTIVE: "badge-ineffective",
-        ControlEffectiveness.NOT_ASSESSED: "badge-pending",
-    }
-    return f'<span class="status-badge {cls_map[eff]}">{eff.value}</span>'
-
-
-# ─────────────────────────────────────────────
-# SIDEBAR — Project & Control Navigation
+# SIDEBAR
 # ─────────────────────────────────────────────
 
 def render_sidebar():
     with st.sidebar:
         st.markdown("### 🏗️ Audit Project")
 
-        if st.session_state.project is None:
-            st.markdown("---")
-            st.markdown("**Create New Project**")
-            project_name = st.text_input(
-                "Audit Name",
-                placeholder="e.g., Database Services Audit Q2 2026",
-                key="new_project_name"
-            )
-            if st.button("Create Project", use_container_width=True, type="primary"):
-                if project_name:
-                    st.session_state.project = AuditProject(name=project_name)
+        # Groq key
+        import os as _os
+        groq_key = st.text_input("Groq API Key", type="password",
+                                  value=_os.environ.get("GROQ_API_KEY", ""), key="groq_key")
+        if groq_key:
+            _os.environ["GROQ_API_KEY"] = groq_key
+
+        db = get_db()
+
+        # Select or create project
+        projects = db.query(AuditProject).all()
+        project_names = ["-- Create New --"] + [p.name for p in projects]
+        selected = st.selectbox("Select Project", project_names, key="project_select")
+
+        if selected == "-- Create New --":
+            new_name = st.text_input("New Audit Name", placeholder="e.g., Database Services Audit Q2 2026")
+            if st.button("Create Project", type="primary", use_container_width=True):
+                if new_name:
+                    proj = AuditProject(name=new_name)
+                    db.add(proj)
+                    db.commit()
+                    st.session_state["project_id"] = proj.id
+                    st.rerun()
+            db.close()
+            return
+        else:
+            proj = db.query(AuditProject).filter(AuditProject.name == selected).first()
+            st.session_state["project_id"] = proj.id
+
+        st.caption(f"Created: {proj.created_at.strftime('%d %b %Y')}")
+
+        # Add control
+        st.markdown("---")
+        new_ctrl = st.text_input("Add Control", placeholder="e.g., DB Privileged Access Mgmt")
+        if st.button("➕ Add Control", use_container_width=True):
+            if new_ctrl:
+                existing = db.query(ControlWorkpaper).filter(
+                    ControlWorkpaper.project_id == proj.id,
+                    ControlWorkpaper.control_name == new_ctrl
+                ).first()
+                if not existing:
+                    wp = ControlWorkpaper(project_id=proj.id, control_name=new_ctrl)
+                    db.add(wp)
+                    db.commit()
+                    st.session_state["workpaper_id"] = wp.id
                     st.rerun()
                 else:
-                    st.warning("Enter a project name.")
-            return
+                    st.warning("Control already exists.")
 
-        project = st.session_state.project
-        st.markdown(f"**{project.name}**")
-        st.caption(f"Created: {project.created_at.strftime('%d %b %Y')}")
-
-        # ── Add Control ──
+        # Control list
         st.markdown("---")
-        st.markdown("**Controls**")
+        workpapers = db.query(ControlWorkpaper).filter(
+            ControlWorkpaper.project_id == proj.id
+        ).all()
 
-        new_control = st.text_input(
-            "Add Control",
-            placeholder="e.g., DB Privileged Access Mgmt",
-            key="new_control_input"
-        )
-        if st.button("➕ Add Control", use_container_width=True):
-            if new_control and not project.get_workpaper(new_control):
-                project.add_workpaper(new_control)
-                st.session_state.active_control = new_control
-                st.rerun()
-            elif project.get_workpaper(new_control):
-                st.warning("Control already exists.")
-
-        # ── Control List ──
-        if project.workpapers:
-            st.markdown("---")
-            for wp in project.workpapers:
-                col1, col2 = st.columns([3, 1])
-                with col1:
-                    is_active = st.session_state.active_control == wp.control_name
-                    btn_type = "primary" if is_active else "secondary"
-                    if st.button(
-                        f"{'▶ ' if is_active else ''}{wp.control_name}",
-                        key=f"nav_{wp.id}",
-                        use_container_width=True,
-                        type=btn_type
-                    ):
-                        st.session_state.active_control = wp.control_name
-                        st.session_state.active_phase = None
-                        st.rerun()
-                with col2:
-                    st.markdown(f"**{wp.progress_pct()}%**")
-
-        # ── GROQ API Key ──
-        st.markdown("---")
-        st.markdown("**⚙️ Settings**")
-        import os
-        groq_key = st.text_input(
-            "Groq API Key",
-            type="password",
-            value=os.environ.get("GROQ_API_KEY", ""),
-            key="groq_key_input"
-        )
-        if groq_key:
-            os.environ["GROQ_API_KEY"] = groq_key
-
-        # ── Reset ──
-        st.markdown("---")
-        if st.button("🗑️ Reset Project", use_container_width=True):
-            st.session_state.project = None
-            st.session_state.active_control = None
-            st.session_state.active_phase = None
-            st.session_state.extractions = {}
-            st.rerun()
-
-
-# ─────────────────────────────────────────────
-# MAIN: No project yet
-# ─────────────────────────────────────────────
-
-def render_welcome():
-    st.markdown("""
-    <div class="main-header">
-        <h1>📋 UC-01 v2 — Agentic AI Audit Workpaper Assistant</h1>
-        <p>Multi-control, principle-based audit workpaper builder powered by AI</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    st.markdown("""
-    ### How It Works
-
-    **1. Create a Project** — Define your audit engagement (e.g., Database Services Audit).
-
-    **2. Add Controls** — Each control (e.g., DB Privileged Access, DB Backup & Restore) gets its own workpaper.
-
-    **3. Upload Transcripts** — Upload MS Teams walkthrough transcripts → AI extracts the RCM.
-
-    **4. Test in Any Order** — CDE, COE, DA — in whatever sequence fits your methodology.
-
-    **5. Review & Edit** — See the live workpaper draft after each step. Edit anything manually.
-
-    **6. Conclude & Export** — AI recommends effectiveness. Override if needed. Download .docx.
-
-    ---
-    👈 **Start by creating a project in the sidebar.**
-    """)
-
-
-# ─────────────────────────────────────────────
-# MAIN: Control Dashboard
-# ─────────────────────────────────────────────
-
-def render_control_dashboard(wp: ControlWorkpaper):
-    st.markdown(f"""
-    <div class="main-header">
-        <h1>{wp.control_name}</h1>
-        <p>{wp.audit_name} &nbsp;|&nbsp; {effectiveness_badge(wp.effectiveness)} &nbsp;|&nbsp; Progress: {wp.progress_pct()}%</p>
-    </div>
-    """, unsafe_allow_html=True)
-
-    # ── Phase Navigation (Non-linear!) ──
-    phases = [
-        (TestingPhase.WALKTHROUGH, "📝", "Walkthrough & RCM"),
-        (TestingPhase.CDE, "🔍", "CDE Testing"),
-        (TestingPhase.COE, "⚙️", "COE Testing"),
-        (TestingPhase.DA, "📊", "Data Analytics"),
-        (TestingPhase.EXCEPTIONS, "⚠️", "Exceptions"),
-    ]
-
-    st.markdown("### Workflow Phases")
-    st.caption("Click any phase — no fixed order required.")
-
-    cols = st.columns(5)
-    for i, (phase, icon, label) in enumerate(phases):
-        with cols[i]:
-            is_complete = phase in wp.completed_phases
-            is_active = st.session_state.active_phase == phase
-            status = "✅" if is_complete else ("🔶" if is_active else "⬜")
-
-            if st.button(
-                f"{icon} {label}\n{status}",
-                key=f"phase_{phase.value}",
-                use_container_width=True,
-                type="primary" if is_active else "secondary"
-            ):
-                st.session_state.active_phase = phase
+        for wp in workpapers:
+            is_active = st.session_state.get("workpaper_id") == wp.id
+            label = f"{'▶ ' if is_active else ''}{wp.control_name}"
+            if st.button(label, key=f"nav_{wp.id}", use_container_width=True,
+                        type="primary" if is_active else "secondary"):
+                st.session_state["workpaper_id"] = wp.id
+                st.session_state["active_phase"] = None
                 st.rerun()
 
-    # ── Conclusion & Export row ──
-    col_conclude, col_export = st.columns(2)
-    with col_conclude:
-        if st.button("🤖 Generate AI Conclusion", use_container_width=True, type="primary"):
-            with st.spinner("AI is analyzing all evidence..."):
-                try:
-                    eff, rationale = generate_conclusion(wp)
-                    wp.effectiveness = eff
-                    wp.ai_conclusion_rationale = rationale
-                    wp.last_updated = datetime.now()
-                    st.rerun()
-                except Exception as e:
-                    st.error(f"Error generating conclusion: {e}")
+        # DB info
+        st.markdown("---")
+        st.caption(f"💾 DB: {os.environ.get('DATABASE_URL', 'sqlite:///uc01.db')[:40]}...")
 
-    with col_export:
-        if st.button("📥 Download Workpaper (.docx)", use_container_width=True):
-            try:
-                buffer = export_workpaper(wp)
-                st.download_button(
-                    "⬇️ Save File",
-                    data=buffer,
-                    file_name=f"Workpaper_{wp.control_name.replace(' ', '_')}_{datetime.now().strftime('%Y%m%d')}.docx",
-                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-                    use_container_width=True,
+        db.close()
+
+
+# ─────────────────────────────────────────────
+# DOCUMENT UPLOAD (shared component)
+# ─────────────────────────────────────────────
+
+def render_document_upload(wp_id: int, phase: str, allow_supporting: bool = True):
+    """Upload transcripts and optionally supporting documents."""
+    db = get_db()
+
+    st.markdown("#### 📄 Upload Transcripts")
+    uploaded_transcripts = st.file_uploader(
+        f"Upload {phase} transcript(s)",
+        type=["txt", "vtt", "md", "docx"],
+        accept_multiple_files=True,
+        key=f"transcript_upload_{wp_id}_{phase}"
+    )
+
+    if uploaded_transcripts:
+        for uf in uploaded_transcripts:
+            existing = db.query(WorkpaperDocument).filter(
+                WorkpaperDocument.workpaper_id == wp_id,
+                WorkpaperDocument.filename == uf.name,
+                WorkpaperDocument.phase == phase,
+            ).first()
+            if not existing:
+                content = uf.read().decode("utf-8", errors="replace")
+                # Save file to disk
+                fpath = os.path.join(UPLOAD_DIR, f"{wp_id}_{phase}_{uf.name}")
+                with open(fpath, "w") as f:
+                    f.write(content)
+
+                doc = WorkpaperDocument(
+                    workpaper_id=wp_id,
+                    filename=uf.name,
+                    doc_type=DocumentType.TRANSCRIPT.value,
+                    phase=phase,
+                    content=content,
+                    file_path=fpath,
                 )
-            except Exception as e:
-                st.error(f"Export error: {e}")
+                db.add(doc)
+                db.commit()
+                st.success(f"Uploaded: {uf.name}")
 
-    st.markdown("---")
+    if allow_supporting:
+        st.markdown("#### 📎 Upload Supporting Documents")
+        st.caption("Process docs, access matrices, technical implementation procedures, risk ratings, etc.")
 
-    # ── Render active phase ──
-    if st.session_state.active_phase == TestingPhase.WALKTHROUGH:
-        render_walkthrough_phase(wp)
-    elif st.session_state.active_phase == TestingPhase.CDE:
-        render_cde_phase(wp)
-    elif st.session_state.active_phase == TestingPhase.COE:
-        render_coe_phase(wp)
-    elif st.session_state.active_phase == TestingPhase.DA:
-        render_da_phase(wp)
-    elif st.session_state.active_phase == TestingPhase.EXCEPTIONS:
-        render_exceptions_phase(wp)
-    else:
-        render_workpaper_preview(wp)
+        col1, col2 = st.columns([2, 1])
+        with col2:
+            doc_type = st.selectbox("Document Type", DOC_TYPE_OPTIONS[1:], key=f"doctype_{wp_id}_{phase}")
+
+        with col1:
+            uploaded_docs = st.file_uploader(
+                "Upload supporting document(s)",
+                type=["txt", "md", "docx", "pdf", "xlsx", "csv", "msg"],
+                accept_multiple_files=True,
+                key=f"support_upload_{wp_id}_{phase}"
+            )
+
+        if uploaded_docs:
+            for uf in uploaded_docs:
+                existing = db.query(WorkpaperDocument).filter(
+                    WorkpaperDocument.workpaper_id == wp_id,
+                    WorkpaperDocument.filename == uf.name,
+                ).first()
+                if not existing:
+                    raw = uf.read()
+                    # Try text decode, fallback to noting it's binary
+                    try:
+                        content = raw.decode("utf-8", errors="replace")
+                    except Exception:
+                        content = f"[Binary file: {uf.name} — {len(raw)} bytes]"
+
+                    fpath = os.path.join(UPLOAD_DIR, f"{wp_id}_{uf.name}")
+                    with open(fpath, "wb") as f:
+                        f.write(raw)
+
+                    d = WorkpaperDocument(
+                        workpaper_id=wp_id,
+                        filename=uf.name,
+                        doc_type=doc_type,
+                        phase=phase,
+                        content=content,
+                        file_path=fpath,
+                    )
+                    db.add(d)
+                    db.commit()
+                    st.success(f"Uploaded: {uf.name} ({doc_type})")
+
+    # Show uploaded docs
+    docs = db.query(WorkpaperDocument).filter(
+        WorkpaperDocument.workpaper_id == wp_id,
+        WorkpaperDocument.phase == phase
+    ).all()
+    if docs:
+        st.markdown("**Uploaded files:**")
+        for d in docs:
+            icon = "📝" if d.doc_type == DocumentType.TRANSCRIPT.value else "📎"
+            with st.expander(f"{icon} {d.filename} ({d.doc_type})"):
+                if d.summary:
+                    st.markdown(f"**Summary:** {d.summary}")
+                st.text_area("Content preview", d.content[:2000], height=100, disabled=True, key=f"prev_{d.id}")
+
+    db.close()
+    return docs
 
 
 # ─────────────────────────────────────────────
@@ -369,94 +260,123 @@ def render_control_dashboard(wp: ControlWorkpaper):
 
 def render_walkthrough_phase(wp: ControlWorkpaper):
     st.markdown("## 📝 Control Walkthrough & RCM")
+    db = get_db()
 
-    # ── Upload transcripts ──
-    st.markdown("### Upload Walkthrough Transcripts")
-    st.caption("Upload one or more MS Teams transcript files (.txt, .vtt, .docx). Multiple walkthroughs will be merged into the RCM.")
+    # Upload section
+    docs = render_document_upload(wp.id, TestingPhase.WALKTHROUGH.value, allow_supporting=True)
 
-    uploaded_files = st.file_uploader(
-        "Upload transcript(s)",
-        type=["txt", "vtt", "docx", "md"],
-        accept_multiple_files=True,
-        key=f"wt_upload_{wp.id}"
-    )
+    transcripts = [d for d in docs if d.doc_type == DocumentType.TRANSCRIPT.value]
+    support_docs = [d for d in docs if d.doc_type != DocumentType.TRANSCRIPT.value]
 
-    if uploaded_files:
-        for uf in uploaded_files:
-            # Check if already uploaded
-            existing = [t.filename for t in wp.transcripts if t.phase == TestingPhase.WALKTHROUGH]
-            if uf.name not in existing:
-                content = uf.read().decode("utf-8", errors="replace")
-                transcript = Transcript(
-                    filename=uf.name,
-                    content=content,
-                    phase=TestingPhase.WALKTHROUGH,
-                )
-                wp.transcripts.append(transcript)
-
-    # ── Show uploaded transcripts ──
-    wt_transcripts = [t for t in wp.transcripts if t.phase == TestingPhase.WALKTHROUGH]
-    if wt_transcripts:
-        st.markdown("**Uploaded Transcripts:**")
-        for t in wt_transcripts:
-            with st.expander(f"📄 {t.filename} ({t.uploaded_at.strftime('%H:%M')})"):
-                if t.summary:
-                    st.markdown(f"**Summary:** {t.summary}")
-                st.text_area("Content", t.content[:3000], height=150, disabled=True, key=f"tc_{t.id}")
-
-    # ── Extract & Build RCM ──
-    if wt_transcripts:
+    if transcripts or support_docs:
         col1, col2 = st.columns(2)
         with col1:
-            if st.button("🤖 Extract from Transcripts & Build RCM", type="primary", use_container_width=True):
-                with st.spinner("AI is reading transcripts and building the RCM..."):
+            if st.button("🤖 Build RCM from Documents", type="primary", use_container_width=True):
+                with st.spinner("AI is reading all documents and building the RCM..."):
                     try:
-                        extractions = []
-                        for t in wt_transcripts:
-                            ext = extract_walkthrough(t.content, wp.control_name)
-                            extractions.append(ext)
-                            t.summary = summarize_transcript(t.content)
+                        t_texts = [{"filename": d.filename, "content": d.content} for d in transcripts]
+                        s_texts = [{"filename": d.filename, "doc_type": d.doc_type, "content": d.content}
+                                   for d in support_docs]
 
-                        st.session_state.extractions[wp.control_name] = extractions
-                        rcm_rows = build_rcm_from_extractions(extractions, wp.control_name, wp.audit_name)
+                        # Summarize docs
+                        for d in transcripts + support_docs:
+                            if not d.summary:
+                                d.summary = summarize_document(d.content, d.doc_type)
+
+                        rcm_rows = build_rcm(wp.control_name, wp.project.name, t_texts, s_texts)
                         wp.rcm = rcm_rows
-                        wp.mark_phase_complete(TestingPhase.WALKTHROUGH)
-                        wp.last_updated = datetime.now()
+                        wp.mark_phase_complete(TestingPhase.WALKTHROUGH.value)
+                        db.commit()
+
+                        # Now suggest test procedures
+                        st.info("Generating AI-suggested test procedures...")
+                        summaries = [d.summary for d in support_docs if d.summary]
+                        suggestions = suggest_test_procedures(wp.control_name, rcm_rows, summaries)
+                        wp.suggested_tests = suggestions
+                        db.commit()
+
                         st.rerun()
                     except Exception as e:
-                        st.error(f"Extraction error: {e}")
+                        st.error(f"Error: {e}")
 
         with col2:
-            if st.button("🔄 Re-extract (overwrite RCM)", use_container_width=True):
+            if st.button("🔄 Re-build RCM", use_container_width=True):
                 wp.rcm = []
-                wp.completed_phases = [p for p in wp.completed_phases if p != TestingPhase.WALKTHROUGH]
+                phases = wp.completed_phases
+                phases = [p for p in phases if p != TestingPhase.WALKTHROUGH.value]
+                wp.completed_phases = phases
+                db.commit()
                 st.rerun()
 
     # ── Editable RCM ──
-    if wp.rcm:
+    rcm = wp.rcm
+    if rcm:
         st.markdown("### Risk Control Matrix")
-        st.caption("Edit any field directly. Changes are saved automatically.")
+        st.caption("Edit any field. Click 'Save RCM Changes' when done.")
 
-        for i, row in enumerate(wp.rcm):
-            with st.expander(f"**{row.risk_id} / {row.control_id}** — {row.control_objective[:80]}...", expanded=(i == 0)):
+        rcm_headers = [
+            "process_ref", "process_title", "process_description",
+            "risk_ref", "risk_title", "risk_description",
+            "control_ref", "control_title", "control_description",
+            "related_key_questions", "cde_required", "coe_required",
+            "cde_or_coe_da_required",
+            "cde_test_procedures", "coe_test_procedures",
+            "da_test_procedure", "audit_team_member"
+        ]
+
+        for i, row in enumerate(rcm):
+            with st.expander(f"**{row.get('control_ref', f'Row {i+1}')}** — {row.get('control_title', '')[:60]}", expanded=(i == 0)):
                 col1, col2 = st.columns(2)
                 with col1:
-                    row.risk_id = st.text_input("Risk ID", row.risk_id, key=f"rcm_rid_{wp.id}_{i}")
-                    row.risk_description = st.text_area("Risk Description", row.risk_description, height=80, key=f"rcm_rdesc_{wp.id}_{i}")
-                    row.risk_category = st.text_input("Risk Category", row.risk_category, key=f"rcm_rcat_{wp.id}_{i}")
-                    row.control_id = st.text_input("Control ID", row.control_id, key=f"rcm_cid_{wp.id}_{i}")
-                    row.control_objective = st.text_area("Control Objective", row.control_objective, height=80, key=f"rcm_cobj_{wp.id}_{i}")
-                    row.control_description = st.text_area("Control Description", row.control_description, height=100, key=f"rcm_cdesc_{wp.id}_{i}")
+                    row["process_ref"] = st.text_input("Process Ref", row.get("process_ref", ""), key=f"rcm_pref_{i}")
+                    row["process_title"] = st.text_input("Process Title", row.get("process_title", ""), key=f"rcm_ptitle_{i}")
+                    row["risk_ref"] = st.text_input("Risk Ref", row.get("risk_ref", ""), key=f"rcm_rref_{i}")
+                    row["risk_title"] = st.text_input("Risk Title", row.get("risk_title", ""), key=f"rcm_rtitle_{i}")
+                    row["risk_description"] = st.text_area("Risk Description", row.get("risk_description", ""), height=80, key=f"rcm_rdesc_{i}")
+                    row["control_ref"] = st.text_input("Control Ref", row.get("control_ref", ""), key=f"rcm_cref_{i}")
+                    row["control_title"] = st.text_input("Control Title", row.get("control_title", ""), key=f"rcm_ctitle_{i}")
+                    row["control_description"] = st.text_area("Control Description", row.get("control_description", ""), height=100, key=f"rcm_cdesc_{i}")
                 with col2:
-                    row.control_owner = st.text_input("Control Owner", row.control_owner, key=f"rcm_cown_{wp.id}_{i}")
-                    row.control_frequency = st.selectbox("Frequency", ["Daily", "Weekly", "Monthly", "Quarterly", "Annually", "Ad-hoc", "Event-driven"], index=0, key=f"rcm_freq_{wp.id}_{i}")
-                    row.control_type = st.selectbox("Type", ["Preventive", "Detective", "Corrective"], index=0, key=f"rcm_type_{wp.id}_{i}")
-                    row.control_nature = st.selectbox("Nature", ["Manual", "Automated", "IT-Dependent Manual"], index=0, key=f"rcm_nat_{wp.id}_{i}")
-                    row.key_mitigating_activities = st.text_area("Mitigating Activities", row.key_mitigating_activities, height=80, key=f"rcm_mit_{wp.id}_{i}")
-                    row.testing_approach = st.text_input("Testing Approach", row.testing_approach, key=f"rcm_test_{wp.id}_{i}")
-                    row.evidence_required = st.text_area("Evidence Required", row.evidence_required, height=80, key=f"rcm_evid_{wp.id}_{i}")
+                    row["related_key_questions"] = st.text_area("Related Key Questions", row.get("related_key_questions", ""), height=80, key=f"rcm_kq_{i}")
+                    row["cde_required"] = st.selectbox("CDE Required", ["Yes", "No"], index=0 if row.get("cde_required", "Yes") == "Yes" else 1, key=f"rcm_cde_{i}")
+                    row["coe_required"] = st.selectbox("COE Required", ["Yes", "No"], index=0 if row.get("coe_required", "Yes") == "Yes" else 1, key=f"rcm_coe_{i}")
+                    row["cde_or_coe_da_required"] = st.selectbox("DA Required", ["Yes", "No"], index=0 if row.get("cde_or_coe_da_required", "No") == "Yes" else 1, key=f"rcm_da_{i}")
+                    row["cde_test_procedures"] = st.text_area("CDE Test Procedures", row.get("cde_test_procedures", ""), height=100, key=f"rcm_cdep_{i}")
+                    row["coe_test_procedures"] = st.text_area("COE Test Procedures", row.get("coe_test_procedures", ""), height=100, key=f"rcm_coep_{i}")
+                    row["da_test_procedure"] = st.text_area("DA Test Procedure", row.get("da_test_procedure", ""), height=80, key=f"rcm_dap_{i}")
+                    row["audit_team_member"] = st.text_input("Audit Team Member", row.get("audit_team_member", ""), key=f"rcm_atm_{i}")
 
-    # ── Live preview ──
+        if st.button("💾 Save RCM Changes", type="primary", use_container_width=True):
+            wp.rcm = rcm
+            db.commit()
+            st.success("RCM saved.")
+
+    # ── AI Suggested Test Procedures ──
+    suggestions = wp.suggested_tests
+    if suggestions:
+        st.markdown("---")
+        st.markdown("### 🤖 AI-Suggested Test Procedures")
+        st.caption("Review and override before proceeding to testing phases.")
+
+        for phase_key, label in [("cde_procedures", "CDE"), ("coe_procedures", "COE"), ("da_procedures", "DA")]:
+            phase_data = suggestions.get(phase_key, {})
+            if phase_data:
+                recommended = phase_data.get("recommended", True)
+                icon = "✅" if recommended else "⬜"
+                with st.expander(f"{icon} **{label}** — {'Recommended' if recommended else 'Not Recommended'}: {phase_data.get('rationale', '')[:100]}"):
+                    st.markdown(f"**Rationale:** {phase_data.get('rationale', '')}")
+                    steps = phase_data.get("test_steps", phase_data.get("analytics_to_perform", []))
+                    if steps:
+                        st.markdown("**Suggested Steps:**")
+                        for s in steps:
+                            st.markdown(f"- {s}")
+                    evidence = phase_data.get("evidence_to_request", phase_data.get("data_sources", []))
+                    if evidence:
+                        st.markdown("**Evidence / Data Sources:**")
+                        for e in evidence:
+                            st.markdown(f"- {e}")
+
+    db.close()
     st.markdown("---")
     render_workpaper_preview(wp)
 
@@ -467,58 +387,51 @@ def render_walkthrough_phase(wp: ControlWorkpaper):
 
 def render_cde_phase(wp: ControlWorkpaper):
     st.markdown("## 🔍 Control Design Evaluation (CDE)")
+    db = get_db()
 
     if not wp.rcm:
-        st.warning("RCM not yet populated. Complete the Walkthrough phase first, or build the RCM manually.")
+        st.warning("Build the RCM first (Walkthrough phase).")
 
-    # ── Upload CDE-specific transcripts ──
-    st.markdown("### Upload CDE Meeting Notes / Transcripts")
-    uploaded = st.file_uploader("Upload CDE transcript(s)", type=["txt", "vtt", "md"], accept_multiple_files=True, key=f"cde_upload_{wp.id}")
-    if uploaded:
-        for uf in uploaded:
-            existing = [t.filename for t in wp.transcripts if t.phase == TestingPhase.CDE]
-            if uf.name not in existing:
-                content = uf.read().decode("utf-8", errors="replace")
-                wp.transcripts.append(Transcript(filename=uf.name, content=content, phase=TestingPhase.CDE))
-
-    additional = st.text_area("Additional auditor notes for CDE", placeholder="Any observations, concerns, or context for the AI...", key=f"cde_notes_{wp.id}")
+    docs = render_document_upload(wp.id, TestingPhase.CDE.value, allow_supporting=True)
+    additional = st.text_area("Additional auditor notes", key=f"cde_notes_{wp.id}")
 
     if st.button("🤖 Run CDE Analysis", type="primary", use_container_width=True):
         with st.spinner("AI is evaluating control design..."):
             try:
-                result = analyze_cde(wp, additional)
+                t_texts = [{"filename": d.filename, "content": d.content} for d in docs if d.doc_type == DocumentType.TRANSCRIPT.value]
+                s_texts = [{"filename": d.filename, "doc_type": d.doc_type, "content": d.content} for d in docs if d.doc_type != DocumentType.TRANSCRIPT.value]
+                # Also include walkthrough supporting docs
+                wt_support = wp.get_supporting_docs()
+                s_texts += [{"filename": d.filename, "doc_type": d.doc_type, "content": d.content} for d in wt_support]
+
+                result = analyze_cde(wp.control_name, wp.project.name, wp.rcm, t_texts, s_texts, additional)
                 wp.cde_result = result
-                wp.mark_phase_complete(TestingPhase.CDE)
-                wp.last_updated = datetime.now()
+                wp.mark_phase_complete(TestingPhase.CDE.value)
+                db.commit()
                 st.rerun()
             except Exception as e:
-                st.error(f"CDE analysis error: {e}")
+                st.error(f"Error: {e}")
 
-    # ── Editable CDE result ──
-    if wp.cde_result:
+    cde = wp.cde_result
+    if cde:
         st.markdown("### CDE Results")
-        st.caption("Edit any field below. Your changes are preserved.")
-        cde = wp.cde_result
+        cde["design_assessment"] = st.selectbox("Assessment", ["Well Designed", "Needs Improvement", "Poorly Designed"],
+            index=["Well Designed", "Needs Improvement", "Poorly Designed"].index(cde.get("design_assessment", "Well Designed"))
+            if cde.get("design_assessment") in ["Well Designed", "Needs Improvement", "Poorly Designed"] else 0,
+            key=f"cde_assess_{wp.id}")
+        strengths = st.text_area("Strengths (one per line)", "\n".join(cde.get("design_strengths", [])), key=f"cde_str_{wp.id}")
+        cde["design_strengths"] = [s.strip() for s in strengths.split("\n") if s.strip()]
+        gaps = st.text_area("Gaps (one per line)", "\n".join(cde.get("design_gaps", [])), key=f"cde_gaps_{wp.id}")
+        cde["design_gaps"] = [g.strip() for g in gaps.split("\n") if g.strip()]
+        cde["conclusion"] = st.text_area("CDE Conclusion", cde.get("conclusion", ""), height=150, key=f"cde_conc_{wp.id}")
+        cde["manually_edited"] = True
 
-        cde.design_assessment = st.selectbox(
-            "Design Assessment",
-            ["Well Designed", "Needs Improvement", "Poorly Designed"],
-            index=["Well Designed", "Needs Improvement", "Poorly Designed"].index(cde.design_assessment) if cde.design_assessment in ["Well Designed", "Needs Improvement", "Poorly Designed"] else 0,
-            key=f"cde_assess_{wp.id}"
-        )
+        if st.button("💾 Save CDE Changes", use_container_width=True):
+            wp.cde_result = cde
+            db.commit()
+            st.success("CDE saved.")
 
-        cde_strengths_str = st.text_area("Design Strengths (one per line)", "\n".join(cde.design_strengths), height=100, key=f"cde_str_{wp.id}")
-        cde.design_strengths = [s.strip() for s in cde_strengths_str.split("\n") if s.strip()]
-
-        cde_gaps_str = st.text_area("Design Gaps (one per line)", "\n".join(cde.design_gaps), height=100, key=f"cde_gaps_{wp.id}")
-        cde.design_gaps = [g.strip() for g in cde_gaps_str.split("\n") if g.strip()]
-
-        cde_comp_str = st.text_area("Compensating Controls (one per line)", "\n".join(cde.compensating_controls), height=80, key=f"cde_comp_{wp.id}")
-        cde.compensating_controls = [c.strip() for c in cde_comp_str.split("\n") if c.strip()]
-
-        cde.conclusion = st.text_area("CDE Conclusion", cde.conclusion, height=150, key=f"cde_conc_{wp.id}")
-        cde.manually_edited = True
-
+    db.close()
     st.markdown("---")
     render_workpaper_preview(wp)
 
@@ -529,51 +442,47 @@ def render_cde_phase(wp: ControlWorkpaper):
 
 def render_coe_phase(wp: ControlWorkpaper):
     st.markdown("## ⚙️ Control Operating Effectiveness (COE)")
+    db = get_db()
 
     if not wp.rcm:
-        st.warning("RCM not yet populated. Complete the Walkthrough phase first, or build the RCM manually.")
+        st.warning("Build the RCM first (Walkthrough phase).")
 
-    st.markdown("### Upload COE Meeting Notes / Transcripts")
-    uploaded = st.file_uploader("Upload COE transcript(s)", type=["txt", "vtt", "md"], accept_multiple_files=True, key=f"coe_upload_{wp.id}")
-    if uploaded:
-        for uf in uploaded:
-            existing = [t.filename for t in wp.transcripts if t.phase == TestingPhase.COE]
-            if uf.name not in existing:
-                content = uf.read().decode("utf-8", errors="replace")
-                wp.transcripts.append(Transcript(filename=uf.name, content=content, phase=TestingPhase.COE))
-
-    additional = st.text_area("Additional auditor notes for COE", placeholder="Sample details, testing observations...", key=f"coe_notes_{wp.id}")
+    docs = render_document_upload(wp.id, TestingPhase.COE.value, allow_supporting=True)
+    additional = st.text_area("Additional auditor notes", key=f"coe_notes_{wp.id}")
 
     if st.button("🤖 Run COE Analysis", type="primary", use_container_width=True):
         with st.spinner("AI is evaluating operating effectiveness..."):
             try:
-                result = analyze_coe(wp, additional)
+                t_texts = [{"filename": d.filename, "content": d.content} for d in docs if d.doc_type == DocumentType.TRANSCRIPT.value]
+                s_texts = [{"filename": d.filename, "doc_type": d.doc_type, "content": d.content} for d in docs if d.doc_type != DocumentType.TRANSCRIPT.value]
+                result = analyze_coe(wp.control_name, wp.project.name, wp.rcm, t_texts, s_texts, additional)
                 wp.coe_result = result
-                wp.mark_phase_complete(TestingPhase.COE)
-                wp.last_updated = datetime.now()
+                wp.mark_phase_complete(TestingPhase.COE.value)
+                db.commit()
                 st.rerun()
             except Exception as e:
-                st.error(f"COE analysis error: {e}")
+                st.error(f"Error: {e}")
 
-    if wp.coe_result:
+    coe = wp.coe_result
+    if coe:
         st.markdown("### COE Results")
-        coe = wp.coe_result
-
         col1, col2 = st.columns(2)
         with col1:
-            coe.sample_size = st.text_input("Sample Size", coe.sample_size, key=f"coe_ss_{wp.id}")
-            coe.sample_period = st.text_input("Sample Period", coe.sample_period, key=f"coe_sp_{wp.id}")
-            coe.deviations_found = st.number_input("Deviations Found", min_value=0, value=coe.deviations_found, key=f"coe_dev_{wp.id}")
+            coe["sample_size"] = st.text_input("Sample Size", coe.get("sample_size", ""), key=f"coe_ss_{wp.id}")
+            coe["sample_period"] = st.text_input("Sample Period", coe.get("sample_period", ""), key=f"coe_sp_{wp.id}")
+            coe["deviations_found"] = st.number_input("Deviations", min_value=0, value=coe.get("deviations_found", 0), key=f"coe_dev_{wp.id}")
         with col2:
-            coe.testing_procedure = st.text_area("Testing Procedure", coe.testing_procedure, height=100, key=f"coe_proc_{wp.id}")
-            coe.results_summary = st.text_area("Results Summary", coe.results_summary, height=100, key=f"coe_res_{wp.id}")
+            coe["testing_procedure"] = st.text_area("Testing Procedure", coe.get("testing_procedure", ""), height=100, key=f"coe_proc_{wp.id}")
+            coe["results_summary"] = st.text_area("Results Summary", coe.get("results_summary", ""), height=100, key=f"coe_res_{wp.id}")
+        coe["conclusion"] = st.text_area("COE Conclusion", coe.get("conclusion", ""), height=150, key=f"coe_conc_{wp.id}")
+        coe["manually_edited"] = True
 
-        dev_str = st.text_area("Deviation Details (one per line)", "\n".join(coe.deviation_details), height=80, key=f"coe_devd_{wp.id}")
-        coe.deviation_details = [d.strip() for d in dev_str.split("\n") if d.strip()]
+        if st.button("💾 Save COE Changes", use_container_width=True):
+            wp.coe_result = coe
+            db.commit()
+            st.success("COE saved.")
 
-        coe.conclusion = st.text_area("COE Conclusion", coe.conclusion, height=150, key=f"coe_conc_{wp.id}")
-        coe.manually_edited = True
-
+    db.close()
     st.markdown("---")
     render_workpaper_preview(wp)
 
@@ -584,50 +493,41 @@ def render_coe_phase(wp: ControlWorkpaper):
 
 def render_da_phase(wp: ControlWorkpaper):
     st.markdown("## 📊 Data Analytics (DA)")
+    db = get_db()
 
-    if not wp.rcm:
-        st.warning("RCM not yet populated. Complete the Walkthrough phase first, or build the RCM manually.")
-
-    st.markdown("### Upload DA Meeting Notes / Results")
-    uploaded = st.file_uploader("Upload DA transcript(s)", type=["txt", "vtt", "md", "csv"], accept_multiple_files=True, key=f"da_upload_{wp.id}")
-    if uploaded:
-        for uf in uploaded:
-            existing = [t.filename for t in wp.transcripts if t.phase == TestingPhase.DA]
-            if uf.name not in existing:
-                content = uf.read().decode("utf-8", errors="replace")
-                wp.transcripts.append(Transcript(filename=uf.name, content=content, phase=TestingPhase.DA))
-
-    additional = st.text_area("Additional DA context", placeholder="Data sources used, analytics performed, key findings...", key=f"da_notes_{wp.id}")
+    docs = render_document_upload(wp.id, TestingPhase.DA.value, allow_supporting=True)
+    additional = st.text_area("Additional DA context", key=f"da_notes_{wp.id}")
 
     if st.button("🤖 Run DA Analysis", type="primary", use_container_width=True):
-        with st.spinner("AI is analyzing data analytics results..."):
+        with st.spinner("Analyzing..."):
             try:
-                result = analyze_da(wp, additional)
+                t_texts = [{"filename": d.filename, "content": d.content} for d in docs if d.doc_type == DocumentType.TRANSCRIPT.value]
+                s_texts = [{"filename": d.filename, "doc_type": d.doc_type, "content": d.content} for d in docs if d.doc_type != DocumentType.TRANSCRIPT.value]
+                result = analyze_da(wp.control_name, wp.project.name, wp.rcm, t_texts, s_texts, additional)
                 wp.da_result = result
-                wp.mark_phase_complete(TestingPhase.DA)
-                wp.last_updated = datetime.now()
+                wp.mark_phase_complete(TestingPhase.DA.value)
+                db.commit()
                 st.rerun()
             except Exception as e:
-                st.error(f"DA analysis error: {e}")
+                st.error(f"Error: {e}")
 
-    if wp.da_result:
+    da = wp.da_result
+    if da:
         st.markdown("### DA Results")
-        da = wp.da_result
+        ds = st.text_area("Data Sources (one per line)", "\n".join(da.get("data_sources", [])), key=f"da_ds_{wp.id}")
+        da["data_sources"] = [s.strip() for s in ds.split("\n") if s.strip()]
+        da["analytics_performed"] = st.text_area("Analytics Performed", da.get("analytics_performed", ""), key=f"da_ap_{wp.id}")
+        da["population_size"] = st.text_input("Population Size", da.get("population_size", ""), key=f"da_pop_{wp.id}")
+        da["exceptions_identified"] = st.number_input("Exceptions", min_value=0, value=da.get("exceptions_identified", 0), key=f"da_exc_{wp.id}")
+        da["conclusion"] = st.text_area("DA Conclusion", da.get("conclusion", ""), height=150, key=f"da_conc_{wp.id}")
+        da["manually_edited"] = True
 
-        ds_str = st.text_area("Data Sources (one per line)", "\n".join(da.data_sources), height=80, key=f"da_ds_{wp.id}")
-        da.data_sources = [s.strip() for s in ds_str.split("\n") if s.strip()]
+        if st.button("💾 Save DA Changes", use_container_width=True):
+            wp.da_result = da
+            db.commit()
+            st.success("DA saved.")
 
-        da.analytics_performed = st.text_area("Analytics Performed", da.analytics_performed, height=100, key=f"da_ap_{wp.id}")
-        da.population_size = st.text_input("Population Size", da.population_size, key=f"da_pop_{wp.id}")
-        da.exceptions_identified = st.number_input("Exceptions Identified", min_value=0, value=da.exceptions_identified, key=f"da_exc_{wp.id}")
-
-        exc_str = st.text_area("Exception Details (one per line)", "\n".join(da.exception_details), height=80, key=f"da_excd_{wp.id}")
-        da.exception_details = [e.strip() for e in exc_str.split("\n") if e.strip()]
-
-        da.visualizations_notes = st.text_area("Visualization Notes", da.visualizations_notes, height=80, key=f"da_viz_{wp.id}")
-        da.conclusion = st.text_area("DA Conclusion", da.conclusion, height=150, key=f"da_conc_{wp.id}")
-        da.manually_edited = True
-
+    db.close()
     st.markdown("---")
     render_workpaper_preview(wp)
 
@@ -638,63 +538,49 @@ def render_da_phase(wp: ControlWorkpaper):
 
 def render_exceptions_phase(wp: ControlWorkpaper):
     st.markdown("## ⚠️ Exception Reporting")
+    db = get_db()
 
-    additional = st.text_area("Additional exception context", placeholder="Any specific exceptions observed during testing...", key=f"exc_notes_{wp.id}")
+    additional = st.text_area("Additional context", key=f"exc_notes_{wp.id}")
 
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🤖 AI: Identify Exceptions from Testing", type="primary", use_container_width=True):
-            with st.spinner("AI is reviewing all test results for exceptions..."):
+        if st.button("🤖 AI: Identify Exceptions", type="primary", use_container_width=True):
+            with st.spinner("Reviewing..."):
                 try:
-                    exceptions = identify_exceptions(wp, additional)
-                    wp.exceptions = exceptions
-                    wp.mark_phase_complete(TestingPhase.EXCEPTIONS)
-                    wp.last_updated = datetime.now()
+                    excs = identify_exceptions(wp.control_name, wp.cde_result, wp.coe_result, wp.da_result, additional)
+                    wp.exceptions = excs
+                    wp.mark_phase_complete(TestingPhase.EXCEPTIONS.value)
+                    db.commit()
                     st.rerun()
                 except Exception as e:
-                    st.error(f"Exception identification error: {e}")
+                    st.error(f"Error: {e}")
     with col2:
-        if st.button("➕ Add Exception Manually", use_container_width=True):
-            wp.exceptions.append(ExceptionRecord())
+        if st.button("➕ Add Manually", use_container_width=True):
+            excs = wp.exceptions
+            excs.append({"description": "", "severity": "Medium", "source_phase": "CDE Testing",
+                         "root_cause": "", "management_response": "", "remediation_plan": "", "target_date": ""})
+            wp.exceptions = excs
+            db.commit()
             st.rerun()
 
-    # ── Editable exceptions ──
-    if wp.exceptions:
-        st.markdown("### Exceptions")
-        for i, exc in enumerate(wp.exceptions):
-            with st.expander(f"Exception {i+1}: {exc.description[:60] if exc.description else 'New Exception'}", expanded=True):
-                exc.description = st.text_area("Description", exc.description, key=f"exc_desc_{wp.id}_{i}")
-                col1, col2 = st.columns(2)
-                with col1:
-                    exc.severity = st.selectbox(
-                        "Severity",
-                        [s for s in ExceptionSeverity],
-                        index=list(ExceptionSeverity).index(exc.severity),
-                        format_func=lambda x: x.value,
-                        key=f"exc_sev_{wp.id}_{i}"
-                    )
-                    exc.source_phase = st.selectbox(
-                        "Source Phase",
-                        [TestingPhase.CDE, TestingPhase.COE, TestingPhase.DA],
-                        format_func=lambda x: x.value,
-                        key=f"exc_src_{wp.id}_{i}"
-                    )
-                with col2:
-                    exc.root_cause = st.text_area("Root Cause", exc.root_cause, height=80, key=f"exc_rc_{wp.id}_{i}")
-                    exc.remediation_plan = st.text_area("Remediation Plan", exc.remediation_plan, height=80, key=f"exc_rem_{wp.id}_{i}")
+    excs = wp.exceptions
+    if excs:
+        for i, exc in enumerate(excs):
+            with st.expander(f"Exception {i+1}: {exc.get('description', 'New')[:50]}", expanded=True):
+                exc["description"] = st.text_area("Description", exc.get("description", ""), key=f"exc_d_{wp.id}_{i}")
+                exc["severity"] = st.selectbox("Severity", ["Low", "Medium", "High", "Critical"],
+                    index=["Low", "Medium", "High", "Critical"].index(exc.get("severity", "Medium")), key=f"exc_s_{wp.id}_{i}")
+                exc["root_cause"] = st.text_area("Root Cause", exc.get("root_cause", ""), height=80, key=f"exc_rc_{wp.id}_{i}")
+                exc["remediation_plan"] = st.text_area("Remediation", exc.get("remediation_plan", ""), height=80, key=f"exc_rp_{wp.id}_{i}")
 
-                exc.management_response = st.text_area("Management Response", exc.management_response, height=80, key=f"exc_mgmt_{wp.id}_{i}")
-                exc.target_date = st.text_input("Target Date", exc.target_date, key=f"exc_td_{wp.id}_{i}")
+        if st.button("💾 Save Exceptions", use_container_width=True):
+            wp.exceptions = excs
+            if TestingPhase.EXCEPTIONS.value not in wp.completed_phases:
+                wp.mark_phase_complete(TestingPhase.EXCEPTIONS.value)
+            db.commit()
+            st.success("Saved.")
 
-                if st.button(f"🗑️ Remove Exception {i+1}", key=f"exc_del_{wp.id}_{i}"):
-                    wp.exceptions.pop(i)
-                    st.rerun()
-
-        if TestingPhase.EXCEPTIONS not in wp.completed_phases:
-            wp.mark_phase_complete(TestingPhase.EXCEPTIONS)
-    elif not wp.exceptions:
-        st.info("No exceptions identified yet. Run AI analysis or add manually.")
-
+    db.close()
     st.markdown("---")
     render_workpaper_preview(wp)
 
@@ -705,149 +591,174 @@ def render_exceptions_phase(wp: ControlWorkpaper):
 
 def render_workpaper_preview(wp: ControlWorkpaper):
     st.markdown("## 📄 Live Workpaper Preview")
-    st.caption("This mirrors the exported .docx template: Core Details → CDE → COE.")
 
-    rcm = wp.rcm[0] if wp.rcm else None
-    has_cde = wp.cde_result is not None
-    has_coe = wp.coe_result is not None
-    has_da = wp.da_result is not None
+    rcm = wp.rcm
+    rcm0 = rcm[0] if rcm else {}
+    cde = wp.cde_result
+    coe = wp.coe_result
+    da = wp.da_result
+    wt_docs = wp.get_transcripts(TestingPhase.WALKTHROUGH.value)
 
-    # ── CORE DETAILS ──
+    # Core Details
     st.markdown("### 🔵 CORE DETAILS")
-    core_data = {
-        "Country": "Group-wide",
-        "Legal Entity": "Standard Chartered Bank",
-        "Key Risk": rcm.risk_description if rcm else "—",
-        "Reference Number": rcm.control_id if rcm else "—",
-        "Title (Key Control)": wp.control_name,
-        "Key Control Description": rcm.control_description[:200] + "..." if rcm and len(rcm.control_description) > 200 else (rcm.control_description if rcm else "—"),
-        "CDE Required": "Yes" if has_cde else "No",
-        "COE Required": "Yes" if has_coe else "No",
-        "Data Analytics": "Yes" if has_da else "No",
-    }
-    for label, value in core_data.items():
-        st.markdown(f"**{label}:** {value}")
+    st.markdown(f"**Control:** {wp.control_name}")
+    st.markdown(f"**Risk:** {rcm0.get('risk_description', '—')[:150]}")
+    st.markdown(f"**Status:** {eff_badge(wp.effectiveness)}", unsafe_allow_html=True)
+    st.markdown(f"**Progress:** {wp.progress_pct()}%")
 
-    # ── CDE (shows walkthrough data immediately + CDE analysis when available) ──
-    wt_transcripts = [t for t in wp.transcripts if t.phase == TestingPhase.WALKTHROUGH]
-    has_walkthrough = len(wt_transcripts) > 0
-
-    if has_walkthrough or has_cde:
+    # CDE section (shows walkthrough data immediately)
+    if wt_docs or cde:
         st.markdown("---")
         st.markdown("### 🔵 CDE")
+        if wt_docs:
+            st.markdown("**Process Walkthrough:**")
+            for d in wt_docs:
+                st.markdown(f"- {d.filename} ({d.uploaded_at.strftime('%d %b %Y')})")
+            support = wp.get_supporting_docs()
+            if support:
+                st.markdown("**Supporting Documents:**")
+                for d in support:
+                    st.markdown(f"- {d.filename} ({d.doc_type})")
+        if cde:
+            st.markdown(f"**Assessment:** {cde.get('design_assessment', '')}")
+            st.markdown(f"**Conclusion:** {cde.get('conclusion', '')[:200]}")
 
-        if rcm:
-            st.markdown(f"**Control Frequency:** {rcm.control_frequency}")
-            st.markdown(f"**Nature:** {rcm.control_type} | **Type:** {'Monitoring' if 'Detective' in (rcm.control_type or '') else 'Processing'} | **Manual/Auto:** {rcm.control_nature}")
-
-        # Process Walkthrough section — appears as soon as transcripts are uploaded
-        if has_walkthrough:
-            st.markdown("**CDE Testing Outcome — Process Walkthrough:**")
-            st.markdown(f"> *Discussion and walkthrough with stakeholders*")
-            if rcm and rcm.control_owner:
-                st.markdown(f"> *Control Owner: {rcm.control_owner}*")
-            st.markdown("**Walkthrough transcripts:**")
-            for t in wt_transcripts:
-                st.markdown(f"- {t.filename} ({t.uploaded_at.strftime('%d %b %Y')})")
-                if t.summary:
-                    st.caption(f"  Summary: {t.summary[:150]}...")
-
-        # CDE analysis results — appear after CDE phase is run
-        if has_cde:
-            cde = wp.cde_result
-            st.markdown(f"**CDE Assessment:** {cde.design_assessment}")
-            if cde.design_strengths:
-                st.markdown("**Strengths:** " + "; ".join(cde.design_strengths[:3]))
-            if cde.design_gaps:
-                st.markdown("**Gaps:** " + "; ".join(cde.design_gaps[:3]))
-            st.markdown(f"**CDE Conclusion:** {cde.design_assessment}")
-            st.markdown(f"**Comments:** {cde.conclusion[:300]}{'...' if len(cde.conclusion) > 300 else ''}")
-            if cde.manually_edited:
-                st.caption("✏️ Manually edited by auditor")
-        elif has_walkthrough:
-            st.info("CDE analysis not yet run. Walkthrough data is already captured above.")
-
-    # ── COE ──
-    if has_coe:
+    if coe:
         st.markdown("---")
         st.markdown("### 🔵 COE")
-        coe = wp.coe_result
-        st.markdown(f"**Sample Size:** {coe.sample_size} | **Sample Period:** {coe.sample_period}")
-        st.markdown(f"**Deviations Found:** {coe.deviations_found}")
-        if coe.deviation_details:
-            for d in coe.deviation_details[:3]:
-                st.markdown(f"- {d}")
-        st.markdown(f"**COE Conclusion:** {'Effective' if coe.deviations_found == 0 else 'Partially Effective' if coe.deviations_found <= 2 else 'Ineffective'}")
-        st.markdown(f"**Comments:** {coe.conclusion[:300]}{'...' if len(coe.conclusion) > 300 else ''}")
-        if coe.manually_edited:
-            st.caption("✏️ Manually edited by auditor")
+        st.markdown(f"**Samples:** {coe.get('sample_size', '')} | **Deviations:** {coe.get('deviations_found', 0)}")
+        st.markdown(f"**Conclusion:** {coe.get('conclusion', '')[:200]}")
 
-    # ── DA (shown as additional info) ──
-    if has_da:
+    if da:
         st.markdown("---")
-        st.markdown("### 📊 Data Analytics (feeds into CDE/COE tables)")
-        da = wp.da_result
-        st.markdown(f"**Population:** {da.population_size} | **Exceptions:** {da.exceptions_identified}")
-        st.markdown(f"**Conclusion:** {da.conclusion[:200]}{'...' if len(da.conclusion) > 200 else ''}")
+        st.markdown("### 📊 DA")
+        st.markdown(f"**Population:** {da.get('population_size', '')} | **Exceptions:** {da.get('exceptions_identified', 0)}")
 
-    # ── Exceptions ──
     if wp.exceptions:
         st.markdown("---")
-        st.markdown("### ⚠️ Exceptions (included in COE Comments)")
+        st.markdown("### ⚠️ Exceptions")
         for i, exc in enumerate(wp.exceptions):
-            st.markdown(f"**{i+1}.** [{exc.severity.value}] {exc.description}")
+            st.markdown(f"**{i+1}.** [{exc.get('severity', '')}] {exc.get('description', '')}")
 
-    # ── Overall Conclusion ──
     if wp.ai_conclusion_rationale:
         st.markdown("---")
-        st.markdown(f"### Overall Conclusion: {effectiveness_badge(wp.effectiveness)}", unsafe_allow_html=True)
+        st.markdown(f"### Conclusion: {eff_badge(wp.effectiveness)}", unsafe_allow_html=True)
         st.markdown(wp.ai_conclusion_rationale[:400])
-
-    if wp.auditor_override_rationale:
-        st.markdown(f"**Auditor Override:** {wp.auditor_override_rationale}")
-
-    # ── Auditor override section ──
-    st.markdown("---")
-    st.markdown("### ✏️ Auditor Override")
-    override_eff = st.selectbox(
-        "Override Effectiveness",
-        [e for e in ControlEffectiveness],
-        index=list(ControlEffectiveness).index(wp.effectiveness),
-        format_func=lambda x: x.value,
-        key=f"override_eff_{wp.id}"
-    )
-    override_rationale = st.text_area(
-        "Override Rationale",
-        wp.auditor_override_rationale,
-        placeholder="Explain why you disagree with the AI conclusion...",
-        key=f"override_rat_{wp.id}"
-    )
-    if st.button("Save Override", key=f"save_override_{wp.id}"):
-        wp.effectiveness = override_eff
-        wp.auditor_override_rationale = override_rationale
-        wp.last_updated = datetime.now()
-        st.success("Override saved.")
-        st.rerun()
 
 
 # ─────────────────────────────────────────────
-# MAIN ROUTER
+# CONTROL DASHBOARD
+# ─────────────────────────────────────────────
+
+def render_control_dashboard(wp: ControlWorkpaper):
+    st.markdown(f"""<div class="main-header">
+        <h1>{wp.control_name}</h1>
+        <p>{wp.project.name} | {eff_badge(wp.effectiveness)} | Progress: {wp.progress_pct()}%</p>
+    </div>""", unsafe_allow_html=True)
+
+    # Phase nav
+    phases = [
+        (TestingPhase.WALKTHROUGH.value, "📝", "Walkthrough & RCM"),
+        (TestingPhase.CDE.value, "🔍", "CDE Testing"),
+        (TestingPhase.COE.value, "⚙️", "COE Testing"),
+        (TestingPhase.DA.value, "📊", "Data Analytics"),
+        (TestingPhase.EXCEPTIONS.value, "⚠️", "Exceptions"),
+    ]
+    cols = st.columns(5)
+    for i, (phase, icon, label) in enumerate(phases):
+        with cols[i]:
+            done = phase in wp.completed_phases
+            active = st.session_state.get("active_phase") == phase
+            status = "✅" if done else ("🔶" if active else "⬜")
+            if st.button(f"{icon} {label}\n{status}", key=f"ph_{phase}",
+                        use_container_width=True, type="primary" if active else "secondary"):
+                st.session_state["active_phase"] = phase
+                st.rerun()
+
+    db = get_db()
+    col1, col2 = st.columns(2)
+    with col1:
+        if st.button("🤖 Generate AI Conclusion", type="primary", use_container_width=True):
+            with st.spinner("Analyzing all evidence..."):
+                try:
+                    eff, rationale = generate_conclusion(
+                        wp.control_name, wp.rcm, wp.cde_result, wp.coe_result,
+                        wp.da_result, wp.exceptions, wp.completed_phases
+                    )
+                    wp.effectiveness = eff
+                    wp.ai_conclusion_rationale = rationale
+                    db.commit()
+                    st.rerun()
+                except Exception as e:
+                    st.error(f"Error: {e}")
+    with col2:
+        if st.button("📥 Download Workpaper (.docx)", use_container_width=True):
+            try:
+                buffer = export_workpaper(wp)
+                st.download_button("⬇️ Save", data=buffer,
+                    file_name=f"WP_{wp.control_name.replace(' ','_')}_{datetime.now().strftime('%Y%m%d')}.docx",
+                    mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                    use_container_width=True)
+            except Exception as e:
+                st.error(f"Export error: {e}")
+
+    # Auditor override
+    with st.expander("✏️ Auditor Override"):
+        eff_options = ["Not Assessed", "Effective", "Partially Effective", "Ineffective"]
+        override_eff = st.selectbox("Override Effectiveness", eff_options,
+            index=eff_options.index(wp.effectiveness) if wp.effectiveness in eff_options else 0, key=f"ov_eff_{wp.id}")
+        override_rat = st.text_area("Override Rationale", wp.auditor_override_rationale or "", key=f"ov_rat_{wp.id}")
+        if st.button("Save Override", key=f"ov_save_{wp.id}"):
+            wp.effectiveness = override_eff
+            wp.auditor_override_rationale = override_rat
+            db.commit()
+            st.success("Override saved.")
+            st.rerun()
+
+    db.close()
+    st.markdown("---")
+
+    # Render active phase
+    phase = st.session_state.get("active_phase")
+    if phase == TestingPhase.WALKTHROUGH.value:
+        render_walkthrough_phase(wp)
+    elif phase == TestingPhase.CDE.value:
+        render_cde_phase(wp)
+    elif phase == TestingPhase.COE.value:
+        render_coe_phase(wp)
+    elif phase == TestingPhase.DA.value:
+        render_da_phase(wp)
+    elif phase == TestingPhase.EXCEPTIONS.value:
+        render_exceptions_phase(wp)
+    else:
+        render_workpaper_preview(wp)
+
+
+# ─────────────────────────────────────────────
+# MAIN
 # ─────────────────────────────────────────────
 
 def main():
     render_sidebar()
 
-    if st.session_state.project is None:
-        render_welcome()
+    wp_id = st.session_state.get("workpaper_id")
+    if not wp_id:
+        st.markdown("""<div class="main-header">
+            <h1>📋 UC-01 v2 — Agentic AI Audit Workpaper Assistant</h1>
+            <p>Persistent storage | Multi-document | AI-suggested test procedures</p>
+        </div>""", unsafe_allow_html=True)
+        st.markdown("👈 **Select or create a project and add controls in the sidebar.**")
         return
 
-    wp = get_active_workpaper()
-    if wp is None:
-        render_welcome()
-        st.info("👈 Select or add a control from the sidebar.")
+    db = get_db()
+    wp = db.query(ControlWorkpaper).get(wp_id)
+    if not wp:
+        st.error("Workpaper not found.")
+        db.close()
         return
 
     render_control_dashboard(wp)
+    db.close()
 
 
 if __name__ == "__main__":
