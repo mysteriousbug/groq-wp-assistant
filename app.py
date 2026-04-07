@@ -153,6 +153,24 @@ def render_sidebar():
         db_url = os.environ.get('DATABASE_URL', 'sqlite:///uc01.db')
         st.caption(f"💾 {db_url[:50]}...")
 
+        # Reset button
+        if st.button("🗑️ Reset All Data", use_container_width=True):
+            st.session_state["confirm_reset"] = True
+
+        if st.session_state.get("confirm_reset"):
+            st.warning("This will DELETE all projects, workpapers, and documents.")
+            if st.button("⚠️ Yes, delete everything", type="primary", use_container_width=True):
+                db.query(WorkpaperDocument).delete()
+                db.query(ControlWorkpaper).delete()
+                db.query(AuditProject).delete()
+                db.commit()
+                st.session_state.clear()
+                close_session()
+                st.rerun()
+            if st.button("Cancel", use_container_width=True):
+                st.session_state["confirm_reset"] = False
+                st.rerun()
+
 
 # ─────────────────────────────────────────────
 # DOCUMENT UPLOAD
