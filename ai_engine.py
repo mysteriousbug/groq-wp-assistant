@@ -32,7 +32,7 @@ def get_client() -> Groq:
     return Groq(api_key=api_key)
 
 
-def _call_llm(system_prompt: str, user_prompt: str, temperature: float = 0.2) -> str:
+def _call_llm(system_prompt: str, user_prompt: str, temperature: float = 0.2, max_tokens: int = 4096) -> str:
     client = get_client()
     response = client.chat.completions.create(
         model="llama-3.3-70b-versatile",
@@ -41,7 +41,7 @@ def _call_llm(system_prompt: str, user_prompt: str, temperature: float = 0.2) ->
             {"role": "user", "content": user_prompt},
         ],
         temperature=temperature,
-        max_tokens=4096,
+        max_tokens=max_tokens,
     )
     return response.choices[0].message.content.strip()
 
@@ -448,28 +448,74 @@ def generate_conclusion(
 ) -> tuple[str, str]:
     """Returns (effectiveness_str, rationale_str)."""
     system_prompt = """You are an expert internal auditor making a final control effectiveness determination.
-Respond ONLY with a JSON object:
+Respond ONLY with a JSON object. Keep the rationale CONCISE (max 150 words):
 {
   "effectiveness": "Effective / Partially Effective / Ineffective",
-  "rationale": "Detailed rationale (2-3 paragraphs)"
-}"""
+  "rationale": "Concise rationale in 1-2 short paragraphs (max 150 words)"
+}
+IMPORTANT: Keep your response short to avoid truncation. Do NOT exceed 150 words in the rationale."""
 
+    # Build a compact summary instead of dumping full JSON
     parts = [f"Control: {control_name}"]
     parts.append(f"Completed phases: {completed_phases or []}")
-    if rcm_rows:
-        parts.append(f"RCM:\n{json.dumps(rcm_rows, indent=2)}")
-    if cde_result:
-        parts.append(f"CDE:\n{json.dumps(cde_result, indent=2)}")
-    if coe_result:
-        parts.append(f"COE:\n{json.dumps(coe_result, indent=2)}")
-    if da_result:
-        parts.append(f"DA:\n{json.dumps(da_result, indent=2)}")
-    if exceptions:
-        parts.append(f"Exceptions:\n{json.dumps(exceptions, indent=2)}")
 
-    raw = _call_llm(system_prompt, "\n\n".join(parts))
-    data = _parse_json_response(raw)
-    return data.get("effectiveness", "Not Assessed"), data.get("rationale", "")
+    if rcm_rows:
+        # Just send key fields, not full RCM
+        rcm_summary = [{"control_ref": r.get("control_ref", ""), "risk_title": r.get("risk_title", ""),
+                        "control_title": r.get("control_title", "")} for r in rcm_rows]
+        parts.append(f"RCM summary: {json.dumps(rcm_summary)}")
+
+    if cde_result:
+        parts.append(f"CDE: assessment={cde_result.get('design_assessment','')}, "
+                     f"gaps={cde_result.get('design_gaps',[])}, "
+                     f"conclusion={cde_result.get('conclusion','')[:200]}")
+    if coe_result:
+        parts.append(f"COE: deviations={coe_result.get('deviations_found',0)}, "
+                     f"conclusion={coe_result.get('conclusion','')[:200]}")
+    if da_result:
+        parts.append(f"DA: exceptions={da_result.get('exceptions_identified',0)}, "
+                     f"conclusion={da_result.get('conclusion','')[:200]}")
+    if exceptions:
+        exc_summary = [{"severity": e.get("severity",""), "description": e.get("description","")[:80]}
+                      for e in exceptions]
+        parts.append(f"Exceptions: {json.dumps(exc_summary)}")
+
+    raw = _call_llm(system_prompt, "\n\n".join(parts), max_tokens=1024)
+
+    # Try normal parse first
+    try:
+        data = _parse_json_response(raw)
+        return data.get("effectiveness", "Not Assessed"), data.get("rationale", "")
+    except ValueError:
+        pass
+
+    # Handle truncated JSON — extract what we can
+    effectiveness = "Not Assessed"
+    rationale = ""
+
+    # Try to find effectiveness
+    for label in ["Effective", "Partially Effective", "Ineffective"]:
+        if label in raw:
+            effectiveness = label
+            break
+
+    # Try to extract rationale text
+    rat_start = raw.find('"rationale"')
+    if rat_start != -1:
+        # Find the start of the value string
+        colon = raw.find(":", rat_start)
+        quote = raw.find('"', colon + 1)
+        if quote != -1:
+            # Get everything after the opening quote, strip trailing incomplete parts
+            rationale = raw[quote + 1:]
+            # Clean up
+            rationale = rationale.rstrip('" \n\r\t}')
+            rationale = rationale.replace('\\"', '"').replace('\\n', ' ')
+
+    if not rationale:
+        rationale = raw[:500]  # Fallback: just use the raw text
+
+    return effectiveness, rationale
 
 
 # ─────────────────────────────────────────────
