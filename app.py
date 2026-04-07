@@ -751,7 +751,7 @@ def main():
         return
 
     db = get_db()
-    wp = db.query(ControlWorkpaper).get(wp_id)
+    wp = db.get(ControlWorkpaper, wp_id)
     if not wp:
         st.error("Workpaper not found.")
         db.close()
